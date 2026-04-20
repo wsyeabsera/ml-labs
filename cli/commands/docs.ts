@@ -27,26 +27,27 @@ export async function docs() {
     console.log("")
   }
 
-  // Serve static dist/ with Bun's built-in server — no vite, no node_modules at runtime
-  let server: ReturnType<typeof Bun.serve> | undefined
-  for (let port = PORT; port < PORT + 10; port++) {
-    try {
-      server = Bun.serve({
-        port,
-        async fetch(req) {
-          const url = new URL(req.url)
-          const pathname = url.pathname === "/" ? "/index.html" : url.pathname
-          const file = Bun.file(join(distDir, pathname))
-          if (await file.exists()) return new Response(file)
-          return new Response(Bun.file(join(distDir, "index.html")))
-        },
-      })
-      break
-    } catch {
-      // port busy, try next
+  // Kill anything already on PORT so we always land on the same URL
+  const pids = Bun.spawnSync(["lsof", "-ti", `TCP:${PORT}`, "-sTCP:LISTEN"], { stderr: "ignore" })
+  const pidList = new TextDecoder().decode(pids.stdout).trim()
+  if (pidList) {
+    for (const pid of pidList.split("\n")) {
+      Bun.spawnSync(["kill", "-9", pid.trim()], { stderr: "ignore" })
     }
+    // brief pause for the OS to release the socket
+    await Bun.sleep(300)
   }
-  if (!server) { console.error("Could not bind to any port in range 5273–5282."); process.exit(1) }
+
+  const server = Bun.serve({
+    port: PORT,
+    async fetch(req) {
+      const url = new URL(req.url)
+      const pathname = url.pathname === "/" ? "/index.html" : url.pathname
+      const file = Bun.file(join(distDir, pathname))
+      if (await file.exists()) return new Response(file)
+      return new Response(Bun.file(join(distDir, "index.html")))
+    },
+  })
 
   console.log(`ML-Labs docs → http://localhost:${server.port}`)
   console.log("Press Ctrl+C to stop.\n")
