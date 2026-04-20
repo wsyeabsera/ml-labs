@@ -43,11 +43,8 @@ export async function status() {
       body: JSON.stringify({ jsonrpc: "2.0", method: "ping", id: 1 }),
       signal: AbortSignal.timeout(2500),
     })
-    if (res.ok || res.status === 405) {
-      console.log(`reachable  (${rsUrl})`)
-    } else {
-      console.log(`HTTP ${res.status}  (${rsUrl})`)
-    }
+    // Any HTTP response means the server is up
+    console.log(`reachable  (${rsUrl})`)
   } catch {
     if (isRemote) {
       console.log(`unreachable  (${rsUrl})`)
