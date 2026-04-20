@@ -1,5 +1,6 @@
 import { db } from "./schema"
 import { safeParse } from "../../util/json"
+import type { NormStats } from "./tasks"
 
 export interface Run {
   id: number
@@ -9,6 +10,12 @@ export interface Run {
   perClassAccuracy: Record<string, number> | null
   confusionMatrix: number[][] | null
   lossHistory: number[] | null
+  valAccuracy: number | null
+  valLossHistory: number[] | null
+  normStats: NormStats | null
+  mae: number | null
+  rmse: number | null
+  r2: number | null
   sampleCounts: Record<string, number> | null
   weights: Record<string, { data: number[]; shape: number[] }> | null
   checkpoint: Checkpoint | null
@@ -39,7 +46,9 @@ export interface Checkpoint {
 interface DbRow {
   id: number; task_id: string; hyperparams: string; accuracy: number | null
   per_class_accuracy: string | null; confusion_matrix: string | null
-  loss_history: string | null; sample_counts: string | null; weights: string | null
+  loss_history: string | null; val_accuracy: number | null; val_loss_history: string | null
+  norm_stats: string | null; mae: number | null; rmse: number | null; r2: number | null
+  sample_counts: string | null; weights: string | null
   checkpoint: string | null; run_progress: string | null; owner_pid: number | null
   source_uri: string | null; status: string; started_at: number | null; finished_at: number | null
 }
@@ -52,6 +61,12 @@ function rowToRun(r: DbRow): Run {
     perClassAccuracy: safeParse(r.per_class_accuracy, null),
     confusionMatrix: safeParse(r.confusion_matrix, null),
     lossHistory: safeParse(r.loss_history, null),
+    valAccuracy: r.val_accuracy,
+    valLossHistory: safeParse(r.val_loss_history, null),
+    normStats: safeParse(r.norm_stats, null),
+    mae: r.mae,
+    rmse: r.rmse,
+    r2: r.r2,
     sampleCounts: safeParse(r.sample_counts, null),
     weights: safeParse(r.weights, null),
     checkpoint: safeParse(r.checkpoint, null),
@@ -112,13 +127,25 @@ export function finalizeRun(id: number, params: {
   lossHistory: number[]
   sampleCounts: Record<string, number>
   weights: Record<string, { data: number[]; shape: number[] }>
+  valAccuracy?: number
+  valLossHistory?: number[]
+  normStats?: NormStats
+  mae?: number
+  rmse?: number
+  r2?: number
 }) {
   db.prepare(`UPDATE runs SET accuracy=?, per_class_accuracy=?, confusion_matrix=?,
     loss_history=?, sample_counts=?, weights=?, status='completed', finished_at=unixepoch(),
-    checkpoint=NULL WHERE id=?`).run(
+    checkpoint=NULL, val_accuracy=?, val_loss_history=?, norm_stats=?, mae=?, rmse=?, r2=?
+    WHERE id=?`).run(
     params.accuracy, JSON.stringify(params.perClassAccuracy), JSON.stringify(params.confusionMatrix),
     JSON.stringify(params.lossHistory), JSON.stringify(params.sampleCounts),
-    JSON.stringify(params.weights), id,
+    JSON.stringify(params.weights),
+    params.valAccuracy ?? null,
+    params.valLossHistory ? JSON.stringify(params.valLossHistory) : null,
+    params.normStats ? JSON.stringify(params.normStats) : null,
+    params.mae ?? null, params.rmse ?? null, params.r2 ?? null,
+    id,
   )
 }
 

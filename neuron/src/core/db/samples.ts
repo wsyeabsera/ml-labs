@@ -6,6 +6,7 @@ export interface SampleRow {
   label: string
   features: number[]
   raw?: unknown
+  split: "train" | "test"
   createdAt: number
 }
 
@@ -15,6 +16,7 @@ interface DbRow {
   label: string
   features: string
   raw: string | null
+  split: string | null
   created_at: number
 }
 
@@ -25,27 +27,34 @@ function toSampleRow(r: DbRow): SampleRow {
     label: r.label,
     features: JSON.parse(r.features) as number[],
     raw: r.raw ? JSON.parse(r.raw) : undefined,
+    split: (r.split === "test" ? "test" : "train"),
     createdAt: r.created_at,
   }
 }
 
-export function insertSample(taskId: string, label: string, features: number[], raw?: unknown): number {
+export function insertSample(taskId: string, label: string, features: number[], raw?: unknown, split: "train" | "test" = "train"): number {
   const result = db.prepare(
-    "INSERT INTO samples (task_id, label, features, raw) VALUES (?, ?, ?, ?)"
-  ).run(taskId, label, JSON.stringify(features), raw !== undefined ? JSON.stringify(raw) : null)
+    "INSERT INTO samples (task_id, label, features, raw, split) VALUES (?, ?, ?, ?, ?)"
+  ).run(taskId, label, JSON.stringify(features), raw !== undefined ? JSON.stringify(raw) : null, split)
   return result.lastInsertRowid as number
 }
 
-export function insertSamplesBatch(items: { taskId: string; label: string; features: number[]; raw?: unknown }[]) {
-  const stmt = db.prepare("INSERT INTO samples (task_id, label, features, raw) VALUES (?, ?, ?, ?)")
+export function insertSamplesBatch(items: { taskId: string; label: string; features: number[]; raw?: unknown; split?: "train" | "test" }[]) {
+  const stmt = db.prepare("INSERT INTO samples (task_id, label, features, raw, split) VALUES (?, ?, ?, ?, ?)")
   const tx = db.transaction(() => {
-    for (const s of items) stmt.run(s.taskId, s.label, JSON.stringify(s.features), s.raw !== undefined ? JSON.stringify(s.raw) : null)
+    for (const s of items) stmt.run(s.taskId, s.label, JSON.stringify(s.features), s.raw !== undefined ? JSON.stringify(s.raw) : null, s.split ?? "train")
   })
   tx()
 }
 
 export function getSamplesByTask(taskId: string): SampleRow[] {
   return (db.query("SELECT * FROM samples WHERE task_id = ? ORDER BY id").all(taskId) as DbRow[]).map(toSampleRow)
+}
+
+export function getSamplesByTaskAndSplit(taskId: string, split: "train" | "test"): SampleRow[] {
+  return (db.query(
+    "SELECT * FROM samples WHERE task_id = ? AND (split = ? OR (split IS NULL AND ? = 'train')) ORDER BY id"
+  ).all(taskId, split, split) as DbRow[]).map(toSampleRow)
 }
 
 export function getSamplesPaginated(opts: { taskId: string; label?: string; limit: number; offset: number }) {
@@ -61,6 +70,16 @@ export function getSamplesPaginated(opts: { taskId: string; label?: string; limi
 export function sampleCounts(taskId: string): Record<string, number> {
   const rows = db.query("SELECT label, COUNT(*) as c FROM samples WHERE task_id = ? GROUP BY label").all(taskId) as { label: string; c: number }[]
   return Object.fromEntries(rows.map((r) => [r.label, r.c]))
+}
+
+export function splitCounts(taskId: string): { train: number; test: number } {
+  const rows = db.query("SELECT split, COUNT(*) as c FROM samples WHERE task_id = ? GROUP BY split").all(taskId) as { split: string | null; c: number }[]
+  let train = 0, test = 0
+  for (const r of rows) {
+    if (!r.split || r.split === "train") train += r.c
+    else if (r.split === "test") test += r.c
+  }
+  return { train, test }
 }
 
 export function deleteSampleById(id: number): boolean {

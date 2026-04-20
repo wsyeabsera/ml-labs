@@ -1,9 +1,8 @@
 import { z } from "zod"
 import { getRegisteredModel } from "../core/db/models"
-import { getRun } from "../core/db/runs"
 import { getTask } from "../core/db/tasks"
 import { rsTensor } from "../core/mcp_client"
-import { softmax, argmax } from "../core/metrics"
+import { softmax, argmax, applyNorm } from "../core/metrics"
 import { loadConfig } from "../adapter/loader"
 
 let predCounter = 0
@@ -35,10 +34,17 @@ export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
   }
 
   const run = model.run
-  const labels = task.labels ?? Object.keys(run.sampleCounts ?? {})
-  if (!labels.length) throw new Error("No labels found — check task and run data")
+  const isRegression = task.kind === "regression"
 
-  const K = labels.length
+  // Apply normalization if the run was trained with it
+  if (run.normStats) {
+    features = applyNorm(features, run.normStats.mean, run.normStats.std)
+  }
+
+  const labels = task.labels ?? Object.keys(run.sampleCounts ?? {})
+  if (!isRegression && !labels.length) throw new Error("No labels found — check task and run data")
+
+  const K = isRegression ? 1 : labels.length
   const D = features.length
   const inputName = `neuron_pred_${predCounter++ % 10}`
 
@@ -49,7 +55,6 @@ export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
   try {
     evalResult = await rsTensor.evaluateMlp(mlpName, inputName)
   } catch {
-    // MLP not in rs-tensor memory (e.g. server restarted) — restore from stored weights
     if (!run.weights) {
       throw new Error(
         `Model for task "${args.task_id}" is not in memory and has no stored weights. Retrain to enable predict.`,
@@ -58,6 +63,16 @@ export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
     const headArch = (run.hyperparams as { headArch?: number[] }).headArch
     await rsTensor.restoreMlp(mlpName, run.weights, headArch)
     evalResult = await rsTensor.evaluateMlp(mlpName, inputName)
+  }
+
+  if (isRegression) {
+    // Reverse the min-max scale stored in the weights metadata
+    const scale = run.weights?.["__regression_scale__"]?.data
+    const targetMin = scale?.[0] ?? 0
+    const targetRange = scale?.[1] ?? 1
+    const rawOutput = evalResult.predictions?.data?.[0] ?? 0
+    const value = rawOutput * targetRange + targetMin
+    return { value, raw_output: rawOutput }
   }
 
   const rawScores = evalResult.predictions?.data?.slice(0, K) ?? []

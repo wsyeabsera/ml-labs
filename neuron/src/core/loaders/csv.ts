@@ -9,6 +9,7 @@ export interface CsvRow {
 export interface CsvLoadResult {
   rows: CsvRow[]
   errors: string[]
+  featureNames: string[] | null
 }
 
 export function loadCsv(opts: {
@@ -30,6 +31,7 @@ export function loadCsv(opts: {
 
   const errors: string[] = []
   const rows: CsvRow[] = []
+  let featureNames: string[] | null = null
 
   for (let i = 0; i < records.length; i++) {
     const row = records[i]!
@@ -48,6 +50,11 @@ export function loadCsv(opts: {
     const colNames = featureColumns === "all"
       ? Object.keys(row).filter((k) => k !== labelColumn)
       : featureColumns
+
+    // Capture feature names on first successful row (header mode only)
+    if (hasHeader && featureNames === null) {
+      featureNames = colNames
+    }
 
     const features: number[] = []
     let rowHasError = false
@@ -75,5 +82,5 @@ export function loadCsv(opts: {
     rows.push({ features, label })
   }
 
-  return { rows, errors }
+  return { rows, errors, featureNames }
 }

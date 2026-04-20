@@ -78,8 +78,15 @@ ensureColumns("runs", [
   "run_progress TEXT",
   "owner_pid INTEGER",
   "source_uri TEXT",
+  "val_accuracy REAL",
+  "val_loss_history TEXT",
+  "norm_stats TEXT",
+  "mae REAL",
+  "rmse REAL",
+  "r2 REAL",
 ])
-ensureColumns("samples", ["raw TEXT"])
+ensureColumns("samples", ["raw TEXT", "split TEXT DEFAULT 'train'"])
+ensureColumns("tasks", ["normalize INTEGER DEFAULT 0", "feature_names TEXT"])
 
 // auto_runs tracks coordinator-driven auto_train invocations
 db.exec(`

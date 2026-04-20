@@ -10,6 +10,7 @@ export const schema = {
   labels: z.array(z.string()).optional().describe("Class labels for classification tasks"),
   feature_shape: z.array(z.number().int().positive()).describe("Shape of each feature vector, e.g. [64]"),
   sample_shape: z.array(z.number().int().positive()).optional().describe("Shape of raw input (pre-featurize), e.g. [49, 64]"),
+  normalize: z.boolean().default(false).describe("Z-score normalize features at train time. Stats computed from training split and stored with each run."),
 }
 
 export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
@@ -19,6 +20,8 @@ export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
     labels: args.labels ?? null,
     featureShape: args.feature_shape,
     sampleShape: args.sample_shape ?? args.feature_shape,
+    normalize: args.normalize ?? false,
+    featureNames: null,
   })
   return { ok: true, task }
 }

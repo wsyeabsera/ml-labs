@@ -45,6 +45,8 @@ export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
       labels: bundle.meta.labels,
       featureShape: bundle.meta.feature_shape,
       sampleShape: bundle.meta.sample_shape,
+      normalize: false,
+      featureNames: null,
     })
   }
 

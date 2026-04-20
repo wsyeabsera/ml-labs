@@ -31,6 +31,10 @@ import * as autoTrain from "./auto_train"
 import * as getAutoStatus from "./get_auto_status"
 import * as logAutoNote from "./log_auto_note"
 import * as suggestSamples from "./suggest_samples"
+import * as inspectData from "./inspect_data"
+import * as getTrainingCurves from "./get_training_curves"
+import * as modelStats from "./model_stats"
+import * as batchPredict from "./batch_predict"
 
 type AnySchema = Record<string, z.ZodTypeAny>
 type ToolModule = {
@@ -48,6 +52,7 @@ const modules: ToolModule[] = [
   loadCsv, loadJson, loadImages, getRunStatus,
   runSweep, publishModel, importModel, listRegistry, loadModel,
   autoTrain, getAutoStatus, logAutoNote, suggestSamples,
+  inspectData, getTrainingCurves, modelStats, batchPredict,
 ] as ToolModule[]
 
 export function listTools() {

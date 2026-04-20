@@ -82,6 +82,15 @@ export async function init(target: string) {
   if (!existsSync(keepPath)) writeFileSync(keepPath, "")
   print_ok("data/")
 
+  // ── examples/ ────────────────────────────────────────────────────────────────
+  const examplesDir = join(projectDir, "examples")
+  mkdirSync(examplesDir, { recursive: true })
+  const examplesSrc = join(templatesDir, "examples")
+  if (existsSync(examplesSrc)) {
+    cpSync(examplesSrc, examplesDir, { recursive: true, force: false })
+    print_ok("examples/  (iris.csv + housing.csv)")
+  }
+
   // ── README.md ────────────────────────────────────────────────────────────────
   const readmePath = join(projectDir, "README.md")
   if (!existsSync(readmePath)) {
@@ -97,10 +106,10 @@ Done! Next steps:
 
   1. Open ${projectDir} in Claude Code
   2. Claude will pick up the Neuron MCP tools automatically
-  3. Add your data:
-       /neuron-load <task_id> <path/to/data.csv>
+  3. Load the bundled example or your own data:
+       /neuron-load iris examples/iris.csv
   4. Train:
-       /neuron-auto <task_id>
+       /neuron-auto iris
 
   Docs: bun run docs  (at ${ML_LABS_DIR})
 `)
