@@ -4,6 +4,34 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v0.4.0 — 2026-04-20
+
+### Added
+- **rs-tensor stdio integration** — eliminates the Cloudflare tunnel and HTTP timeout issues. rs-tensor is now vendored as a git submodule (`rs-tensor/`) and built locally via `cargo build --release --bin mcp`. Neuron communicates with it over a long-lived stdio MCP connection (`StdioClientTransport`), avoiding all network overhead. `RS_TENSOR_MCP_URL` still works as an HTTP override for remote setups.
+- **`ml-labs build`** command — manually rebuilds the rs-tensor binary after editing Rust source. `ml-labs update` now also runs an incremental cargo rebuild automatically.
+- **Cargo prereq check** in `install.sh` — installer fails fast with a helpful message if `cargo` is not installed.
+- **Dashboard server status** — sidebar "Servers" section now shows both `neuron` and `rs-tensor` pills. rs-tensor shows three states: `not built` (binary missing), `ready` (binary exists, idle), `online` (actively connected), plus `stdio`/`http` mode label.
+- **Dashboard liveness (P0)** — the dashboard now shows live activity during training:
+  - `ActivityFeed`: collapses consecutive `run_progress` rows by run ID, raises cap to 15 events, renders all event kinds with icons and colors.
+  - `ActiveJobPill` in sidebar shows current stage + spinner during any training activity.
+  - `ActiveRunCard` component: stage pill, featurize/eval progress bar, live elapsed ticker, hyperparams. Shown on Overview (LiveStrip) and TaskDetail (inline above runs table).
+  - `RunsAll`: live elapsed ticker and pulsing "training…" dot for running runs.
+  - `/activity` route: full paginated event log with kind/task/source filters.
+- **Richer backend events**:
+  - `run_stage` — unthrottled event on each stage transition (featurize → tensors → init → train → eval → weights).
+  - `run_progress` — now includes `i`, `n` (sample count progress).
+  - `run_completed` — now carries `numClasses`, `epochsDone`, `confusionMatrix` (≤10 classes).
+  - `model_registered` — now emitted from both `register_model` tool and `trainBg` auto-promote.
+  - `auto_started` / `auto_note` / `auto_completed` — full lifecycle events for `/neuron-auto` coordinator runs.
+  - `tool_call` payloads enriched with `lr`, `epochs`, `accuracy_target`, `totalConfigs`, `path` for high-signal tools.
+
+### Fixed
+- `suggest_hyperparams` now loads `neuron.config.ts` and hard-pins `headArchitecture` — previously the user's custom architecture was silently ignored in both the sampling prompt and the heuristic fallback.
+- Sweep orchestrator `maxTurns` raised from 8 → 20, preventing wave-2 sub-agent failures on tasks with many classes.
+- Dashboard restart: port-free wait loop now always runs regardless of whether `lsof` found a PID, preventing a bind race on re-invoke.
+
+---
+
 ## v0.3.0 — 2026-04-20
 
 ### Added
