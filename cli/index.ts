@@ -8,6 +8,7 @@ import { docs } from "./commands/docs"
 import { status } from "./commands/status"
 import { tui } from "./commands/tui"
 import { config } from "./commands/config"
+import { health } from "./commands/health"
 
 function getVersion(): string {
   const rootPkg = join(homedir(), ".ml-labs", "package.json")
@@ -33,6 +34,7 @@ COMMANDS
   update                Pull latest ML-Labs and rebuild
   docs                  Serve the ML-Labs docs site (http://localhost:5273)
   status                Show install info, rs-tensor health, and project state
+  health                Run sanity checks on both MCP servers
   config <sub>          Get/set global config (e.g. rs-tensor-url)
 
 OPTIONS
@@ -44,6 +46,7 @@ EXAMPLES
   ml-labs init .                Wire ML-Labs into the current directory
   ml-labs tui                   Open the Neuron terminal dashboard
   ml-labs config set rs-tensor-url http://homeserver:3000/mcp
+  ml-labs health                Run full MCP health check
   ml-labs status
   ml-labs update
   ml-labs docs
@@ -91,6 +94,9 @@ switch (command) {
     break
   case "status":
     await status()
+    break
+  case "health":
+    await health()
     break
   case "config":
     config(args)
