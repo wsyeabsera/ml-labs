@@ -1,0 +1,24 @@
+node_modules/
+dist/
+
+# ML-Labs local DB + logs
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/*.log
+
+# local model registry
+.neuron/
+
+# env
+*.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# editor
+.cursor/
+.idea/

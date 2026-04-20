@@ -3,14 +3,15 @@
   "version": "0.2.0",
   "description": "A Claude-native ML platform — train, sweep, and ship models from your terminal",
   "private": true,
-  "workspaces": ["neuron", "site"],
+  "workspaces": ["neuron", "site", "cli"],
   "scripts": {
     "docs": "bun --cwd site run dev",
     "docs:build": "bun --cwd site run build",
     "docs:preview": "bun --cwd site run preview",
     "mcp:dev": "bun --cwd neuron run dev",
     "mcp:build": "bun --cwd neuron run build",
-    "tui": "bun --cwd neuron run tui"
+    "tui": "bun --cwd neuron run tui",
+    "cli:build": "bun --cwd cli run build"
   },
   "engines": {
     "bun": ">=1.1.0"
