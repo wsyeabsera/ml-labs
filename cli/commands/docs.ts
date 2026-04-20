@@ -28,21 +28,25 @@ export async function docs() {
   }
 
   // Serve static dist/ with Bun's built-in server — no vite, no node_modules at runtime
-  const server = Bun.serve({
-    port: PORT,
-    async fetch(req) {
-      const url = new URL(req.url)
-      let pathname = url.pathname === "/" ? "/index.html" : url.pathname
-
-      const file = Bun.file(join(distDir, pathname))
-      if (await file.exists()) {
-        return new Response(file)
-      }
-
-      // SPA fallback — all routes serve index.html
-      return new Response(Bun.file(join(distDir, "index.html")))
-    },
-  })
+  let server: ReturnType<typeof Bun.serve> | undefined
+  for (let port = PORT; port < PORT + 10; port++) {
+    try {
+      server = Bun.serve({
+        port,
+        async fetch(req) {
+          const url = new URL(req.url)
+          const pathname = url.pathname === "/" ? "/index.html" : url.pathname
+          const file = Bun.file(join(distDir, pathname))
+          if (await file.exists()) return new Response(file)
+          return new Response(Bun.file(join(distDir, "index.html")))
+        },
+      })
+      break
+    } catch {
+      // port busy, try next
+    }
+  }
+  if (!server) { console.error("Could not bind to any port in range 5273–5282."); process.exit(1) }
 
   console.log(`ML-Labs docs → http://localhost:${server.port}`)
   console.log("Press Ctrl+C to stop.\n")
