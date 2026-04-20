@@ -48,6 +48,8 @@ OPTIONS
 EXAMPLES
   ml-labs init my-classifier
   ml-labs init .                Wire ML-Labs into the current directory
+  ml-labs reset iris            Clear samples/runs/weights for task "iris"
+  ml-labs reset iris --delete   Remove the iris task entirely
   ml-labs tui                   Open the Neuron terminal dashboard
   ml-labs config set rs-tensor-url http://homeserver:3000/mcp
   ml-labs health                Run full MCP health check
