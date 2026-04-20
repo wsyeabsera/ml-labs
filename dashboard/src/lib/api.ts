@@ -45,6 +45,7 @@ export interface ApiRun {
   startedAt: number | null
   finishedAt: number | null
   durationS: number | null
+  runProgress?: { stage: string; i?: number; n?: number; message: string } | null
 }
 
 export interface ApiRunProgress {

@@ -1,11 +1,12 @@
 import { useParams, Link } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
+import { useEffect, useState } from "react"
 import { motion } from "framer-motion"
 import { ArrowLeft } from "lucide-react"
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts"
-import { api } from "../lib/api"
+import { api, createRunEventSource } from "../lib/api"
 import { StatusDot } from "../components/StatusDot"
 import { clsx } from "clsx"
 
@@ -158,11 +159,48 @@ export function RunDetail() {
     refetchInterval: (q) => q.state.data?.status === "running" ? 1000 : false,
   })
 
+  const [elapsed, setElapsed] = useState(0)
+  const [liveStage, setLiveStage] = useState<string | null>(null)
+  const [liveMessage, setLiveMessage] = useState<string | null>(null)
+
+  // Live elapsed clock
+  useEffect(() => {
+    if (run?.status !== "running" || !run.startedAt) return
+    const update = () => setElapsed(Math.floor(Date.now() / 1000 - run.startedAt!))
+    update()
+    const id = setInterval(update, 1000)
+    return () => clearInterval(id)
+  }, [run?.status, run?.startedAt])
+
+  // SSE subscription for stage/message updates
+  useEffect(() => {
+    if (!runIdNum || run?.status !== "running") return
+    const es = createRunEventSource(runIdNum)
+    const onProgress = (e: Event) => {
+      try {
+        const d = JSON.parse((e as MessageEvent).data) as { stage?: string; message?: string }
+        if (d.stage) setLiveStage(d.stage)
+        if (d.message) setLiveMessage(d.message)
+      } catch {}
+    }
+    es.addEventListener("progress", onProgress)
+    es.addEventListener("complete", () => es.close())
+    es.onerror = () => es.close()
+    return () => es.close()
+  }, [run?.status, runIdNum])
+
   if (isLoading || !run) {
     return <div className="text-sm text-[var(--text-3)]">Loading run…</div>
   }
 
   const hp = run.hyperparams as { lr?: number; epochs?: number; hidden_layers?: number[]; activation?: string }
+  const stage = liveStage ?? run.runProgress?.stage ?? null
+  const stageMsg = liveMessage ?? run.runProgress?.message ?? null
+  const durationDisplay = run.durationS != null
+    ? `${run.durationS}s`
+    : run.status === "running" && run.startedAt
+    ? `${elapsed}s`
+    : "—"
   const hasLoss = run.lossHistory && run.lossHistory.length > 0
   const hasMatrix = run.confusionMatrix && run.confusionMatrix.length > 0
   const hasPerClass = run.perClassAccuracy && Object.keys(run.perClassAccuracy).length > 0
@@ -186,7 +224,7 @@ export function RunDetail() {
           <p className="text-sm text-[var(--text-3)] mt-0.5">
             {hp.lr != null ? `lr ${hp.lr}` : ""}
             {hp.epochs != null ? ` · ${hp.epochs} epochs` : ""}
-            {run.durationS != null ? ` · ${run.durationS}s` : ""}
+            {` · ${durationDisplay}`}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -211,7 +249,7 @@ export function RunDetail() {
           { label: "Accuracy",     value: pct(run.accuracy),    accent: (run.accuracy ?? 0) >= 0.9 },
           { label: "Val accuracy", value: pct(run.valAccuracy), accent: (run.valAccuracy ?? 0) >= 0.9 },
           { label: "Epochs",       value: hp.epochs != null ? String(hp.epochs) : "—", accent: false },
-          { label: "Duration",     value: run.durationS != null ? `${run.durationS}s` : "—", accent: false },
+          { label: "Duration",     value: durationDisplay, accent: false },
         ].map(({ label, value, accent }) => (
           <div key={label} className="card p-3">
             <p className="text-2xs text-[var(--text-3)] mb-1">{label}</p>
@@ -219,6 +257,18 @@ export function RunDetail() {
           </div>
         ))}
       </div>
+
+      {/* Live training progress */}
+      {run.status === "running" && (
+        <div className="card p-4 mb-6 flex items-center gap-3">
+          <div className="w-2 h-2 rounded-full bg-[var(--accent)] animate-pulse flex-shrink-0" />
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-[var(--text-1)] capitalize">{stage ?? "training"}</p>
+            {stageMsg && <p className="text-2xs text-[var(--text-3)] mt-0.5 truncate">{stageMsg}</p>}
+          </div>
+          <span className="ml-auto stat-num text-xs text-[var(--text-3)] flex-shrink-0">{elapsed}s</span>
+        </div>
+      )}
 
       {/* Regression metrics */}
       {(run.mae != null || run.rmse != null || run.r2 != null) && (

@@ -549,7 +549,11 @@ export function TaskDetail() {
                             {r.valAccuracy != null ? pct(r.valAccuracy) : "—"}
                           </td>
                           <td className="px-4 py-2.5 stat-num text-xs text-[var(--text-2)]">
-                            {r.durationS != null ? `${r.durationS}s` : "—"}
+                            {r.durationS != null
+                              ? `${r.durationS}s`
+                              : r.status === "running" && r.startedAt
+                              ? `${Math.floor(Date.now() / 1000 - r.startedAt)}s`
+                              : "—"}
                           </td>
                           <td className="px-4 py-2.5 font-mono text-xs text-[var(--text-3)]">
                             {(r.hyperparams as { lr?: number; epochs?: number }).lr ?? "—"} / {(r.hyperparams as { lr?: number; epochs?: number }).epochs ?? "—"}
@@ -617,7 +621,11 @@ export function TaskDetail() {
                       {r.accuracy != null ? pct(r.accuracy) : "—"}
                     </td>
                     <td className="px-4 py-2.5 stat-num text-xs text-[var(--text-2)]">
-                      {r.durationS != null ? `${r.durationS}s` : "—"}
+                      {r.durationS != null
+                        ? `${r.durationS}s`
+                        : r.status === "running" && r.startedAt
+                        ? `${Math.floor(Date.now() / 1000 - r.startedAt)}s`
+                        : "—"}
                     </td>
                     <td className="px-4 py-2.5 font-mono text-xs text-[var(--text-3)]">
                       {(r.hyperparams as { lr?: number; epochs?: number }).lr ?? "—"} / {(r.hyperparams as { lr?: number; epochs?: number }).epochs ?? "—"}
