@@ -12,10 +12,15 @@ export async function update() {
 
   console.log("Updating ML-Labs...\n")
 
-  // Pull latest
-  const pull = Bun.spawnSync(["git", "pull"], { cwd: ML_LABS_DIR, stdout: "inherit", stderr: "inherit" })
-  if (pull.exitCode !== 0) {
-    console.error("git pull failed.")
+  // Fetch + hard reset — installation always matches remote exactly
+  Bun.spawnSync(["git", "fetch", "origin"], { cwd: ML_LABS_DIR, stdout: "inherit", stderr: "inherit" })
+  const reset = Bun.spawnSync(["git", "reset", "--hard", "origin/main"], {
+    cwd: ML_LABS_DIR,
+    stdout: "inherit",
+    stderr: "inherit",
+  })
+  if (reset.exitCode !== 0) {
+    console.error("git reset failed.")
     process.exit(1)
   }
 

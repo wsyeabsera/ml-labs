@@ -31,7 +31,8 @@ echo ""
 
 if [ -d "$INSTALL_DIR/.git" ]; then
   info "Updating existing installation at $INSTALL_DIR..."
-  git -C "$INSTALL_DIR" pull --ff-only 2>&1 | sed 's/^/     /'
+  git -C "$INSTALL_DIR" fetch origin 2>&1 | sed 's/^/     /'
+  git -C "$INSTALL_DIR" reset --hard origin/main 2>&1 | sed 's/^/     /'
   ok "Repository updated"
 else
   info "Cloning ML-Labs to $INSTALL_DIR..."
