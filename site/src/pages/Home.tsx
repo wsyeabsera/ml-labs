@@ -41,18 +41,25 @@ export function Home() {
             ship — from one chat.
           </p>
 
+          <div className="lab-panel p-4 mb-6 font-mono text-sm max-w-xl">
+            <div className="text-lab-muted text-xs mb-2 uppercase tracking-widest">install</div>
+            <code className="text-cyan-neon text-xs leading-relaxed break-all">
+              curl -fsSL https://raw.githubusercontent.com/wsyeabsera/ml-labs/main/install.sh | bash
+            </code>
+          </div>
+
           <div className="flex flex-wrap gap-3">
             <Link
-              to="/quick-start"
+              to="/install"
               className="inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-cyan-neon text-lab-bg font-semibold hover:bg-cyan-neon/90 transition-all shadow-glow hover:shadow-glow hover:scale-[1.02]"
             >
-              <Rocket className="w-4 h-4" /> Quick Start
+              <Rocket className="w-4 h-4" /> Get Started
             </Link>
             <Link
-              to="/architecture"
+              to="/quick-start"
               className="inline-flex items-center gap-2 px-5 py-3 rounded-lg border border-lab-border text-lab-heading hover:border-cyan-neon/50 hover:text-cyan-neon transition-colors"
             >
-              <Layers className="w-4 h-4" /> See the Architecture
+              <Layers className="w-4 h-4" /> Quick Start
             </Link>
             <Link
               to="/tool-reference"
@@ -173,16 +180,24 @@ export function Home() {
           <div className="absolute -right-20 -top-20 w-64 h-64 bg-cyan-neon/10 rounded-full blur-3xl" />
           <div className="absolute -left-20 -bottom-20 w-64 h-64 bg-purple-neon/10 rounded-full blur-3xl" />
           <div className="relative">
-            <h3 className="text-2xl md:text-3xl font-bold mb-3">Next stop: the training flow.</h3>
+            <h3 className="text-2xl md:text-3xl font-bold mb-3">Ready to train something?</h3>
             <p className="text-lab-text/80 mb-5 max-w-2xl">
-              Follow a sample from CSV row to softmax confidence in five steps.
+              One installer, one init, one slash command. Five minutes start to finish.
             </p>
-            <Link
-              to="/training-flow"
-              className="inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-purple-neon/15 text-purple-neon border border-purple-neon/40 hover:bg-purple-neon/25 transition-colors"
-            >
-              Walk the flow <ArrowRight className="w-4 h-4" />
-            </Link>
+            <div className="flex flex-wrap gap-3">
+              <Link
+                to="/install"
+                className="inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-cyan-neon/15 text-cyan-neon border border-cyan-neon/40 hover:bg-cyan-neon/25 transition-colors"
+              >
+                Install ML-Labs <ArrowRight className="w-4 h-4" />
+              </Link>
+              <Link
+                to="/training-flow"
+                className="inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-purple-neon/10 text-purple-neon border border-purple-neon/30 hover:bg-purple-neon/20 transition-colors"
+              >
+                Walk the training flow <ArrowRight className="w-4 h-4" />
+              </Link>
+            </div>
           </div>
         </div>
       </section>
