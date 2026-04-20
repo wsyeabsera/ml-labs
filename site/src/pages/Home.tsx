@@ -65,7 +65,7 @@ export function Home() {
               to="/tool-reference"
               className="inline-flex items-center gap-2 px-5 py-3 rounded-lg text-lab-text/70 hover:text-cyan-neon transition-colors"
             >
-              <Terminal className="w-4 h-4" /> 30 MCP tools <ArrowRight className="w-3.5 h-3.5" />
+              <Terminal className="w-4 h-4" /> 34 MCP tools <ArrowRight className="w-3.5 h-3.5" />
             </Link>
           </div>
         </motion.div>
@@ -73,7 +73,7 @@ export function Home() {
 
       <StatRow
         stats={[
-          { value: "30", label: "MCP tools", accent: "cyan" },
+          { value: "34", label: "MCP tools", accent: "cyan" },
           { value: "3", label: "layer stack", accent: "purple" },
           { value: "SQLite", label: "zero ops", accent: "green" },
           { value: "100%", label: "local weights", accent: "orange" },
@@ -101,8 +101,8 @@ export function Home() {
             never write gradients by hand.
           </InfoCard>
           <InfoCard icon={Beaker} title="Neuron MCP" accent="purple" delay={0.08}>
-            30 tools for training, sweeps, diagnosis, cross-project model sharing, and active
-            learning. The ML product layer.
+            34 tools for training, sweeps, diagnosis, observability, regression, and cross-project
+            model sharing. The ML product layer.
           </InfoCard>
           <InfoCard icon={Workflow} title="Claude Code" accent="pink" delay={0.16}>
             The brain. "Train a good model for iris" triggers a coordinator sub-agent that plans,

@@ -20,6 +20,8 @@ export async function handler(_args: z.infer<z.ZodObject<typeof schema>>) {
       kind: t.kind,
       labels: t.labels ?? [],
       feature_shape: t.featureShape,
+      normalize: t.normalize,
+      feature_names: t.featureNames,
       sample_count: total,
       counts_by_label: counts,
       trained: state.trained,

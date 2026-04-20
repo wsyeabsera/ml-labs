@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react"
 import { Box, Text, useInput } from "ink"
 import { useStore, useTaskPoller, setCurrentTask } from "../store"
-import { neuron } from "../client/mcp"
+import { neuron, type InspectResult } from "../client/mcp"
 import { Table } from "../components/Table"
 
 interface SampleCountRow { [key: string]: unknown; label: string; count: number }
@@ -12,6 +12,7 @@ export function Dataset() {
   const [taskIdx, setTaskIdx] = useState(0)
   const [counts, setCounts] = useState<Record<string, number>>({})
   const [total, setTotal] = useState(0)
+  const [inspect, setInspect] = useState<InspectResult | null>(null)
   const [status, setStatus] = useState("")
 
   const task = tasks[taskIdx]
@@ -23,6 +24,7 @@ export function Dataset() {
       setCounts(r.counts)
       setTotal(r.total)
     }).catch(() => {})
+    neuron.inspectData(task.id).then(setInspect).catch(() => {})
   }, [task?.id])
 
   useInput((input) => {
@@ -47,8 +49,13 @@ export function Dataset() {
         </Box>
         {task && (
           <Box flexDirection="column" gap={1}>
-            <Text bold>Task: <Text color="cyan">{task.id}</Text></Text>
-            <Text>Total samples: <Text color="cyan">{total}</Text></Text>
+            <Text bold>Task: <Text color="cyan">{task.id}</Text>  <Text color="gray">({task.kind})</Text></Text>
+            <Text>Total samples: <Text color="cyan">{total}</Text>
+              {inspect?.splits && inspect.splits.train + inspect.splits.test > 0 && (
+                <Text color="gray">  train: <Text color="green">{inspect.splits.train}</Text>  test: <Text color="yellow">{inspect.splits.test}</Text></Text>
+              )}
+            </Text>
+            {inspect?.normalize_enabled && <Text color="gray" dimColor>normalize: <Text color="cyan">on</Text></Text>}
             <Table<SampleCountRow>
               rows={countRows}
               emptyMessage="No samples"
@@ -57,6 +64,11 @@ export function Dataset() {
                 { key: "count", header: "Count", width: 10, render: (r) => String(r.count), color: (r) => r.count > 10 ? "green" : "yellow" },
               ]}
             />
+            {inspect?.warnings && inspect.warnings.length > 0 && (
+              <Box flexDirection="column">
+                {inspect.warnings.map((w, i) => <Text key={i} color="yellow">⚠ {w}</Text>)}
+              </Box>
+            )}
             {status && <Text color="yellow">{status}</Text>}
           </Box>
         )}

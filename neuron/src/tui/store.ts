@@ -6,6 +6,7 @@ export interface TaskWithMeta {
   kind: string
   labels: string[]
   featureShape: number[]
+  normalize: boolean
   sampleCount: number
   countsByLabel: Record<string, number>
   trained: boolean
@@ -65,13 +66,15 @@ export async function refreshTasks() {
     const result = await neuron.listTasks()
     const tasks: TaskWithMeta[] = (result.tasks as unknown as Array<{
       id: string; kind: string; labels: string[]; feature_shape: number[];
+      normalize?: boolean; feature_names?: string[] | null;
       sample_count: number; counts_by_label: Record<string, number>;
-      trained: boolean; accuracy: number | null; active_run_id: number | null
+      trained: boolean; accuracy: number | null; active_run_id: number | null;
     }>).map((t) => ({
       id: t.id,
       kind: t.kind,
       labels: t.labels ?? [],
       featureShape: t.feature_shape,
+      normalize: t.normalize ?? false,
       sampleCount: t.sample_count,
       countsByLabel: t.counts_by_label ?? {},
       trained: t.trained,

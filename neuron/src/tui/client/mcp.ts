@@ -52,6 +52,7 @@ export const neuron = {
   loadCsv: (args: Record<string, unknown>) => call<LoadResult>("load_csv", args),
   loadJson: (path: string, task_id: string) => call<LoadResult>("load_json", { path, task_id }),
   loadImages: (task_id: string, dir: string) => call<LoadResult>("load_images", { task_id, dir }),
+  inspectData: (task_id: string) => call<InspectResult>("inspect_data", { task_id }),
 }
 
 // Shared types for the TUI
@@ -87,6 +88,10 @@ export interface RunDetail extends RunSummary {
   confusion_matrix: number[][] | null
   loss_history: number[] | null
   sample_counts: Record<string, number> | null
+  val_accuracy: number | null
+  mae: number | null
+  rmse: number | null
+  r2: number | null
 }
 
 export interface RunStatus {
@@ -135,4 +140,18 @@ export interface LoadResult {
   skipped: number
   errors: string[]
   per_label: Record<string, number>
+}
+
+export interface InspectResult {
+  ok: boolean
+  task_id?: string
+  kind?: string
+  total: number
+  splits?: { train: number; test: number }
+  features?: { count: number; names: string[] }
+  class_distribution?: Record<string, number> | null
+  imbalance_ratio?: number | null
+  normalize_enabled?: boolean
+  warnings?: string[]
+  message?: string
 }

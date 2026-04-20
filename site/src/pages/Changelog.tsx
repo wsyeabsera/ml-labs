@@ -11,10 +11,25 @@ interface Release {
 
 const releases: Release[] = [
   {
-    version: "0.2.0",
+    version: "0.2.1",
     date: "2026-04-20",
     tag: "latest",
     tagColor: "chip-green",
+    items: [
+      { label: "Train/test split", desc: "load_csv gains test_size (0–0.5) for stratified splits. train only uses the train split; evaluate reports both accuracies." },
+      { label: "Z-score normalization", desc: "create_task normalize=true. Stats computed from training data, stored per run, applied transparently at predict time." },
+      { label: "Regression tasks", desc: "kind=\"regression\": single K=1 output, min-max scaled targets, MAE/RMSE/R² metrics, value returned from predict." },
+      { label: "Class weights", desc: "train class_weights=\"balanced\" oversamples minority classes to equal the majority count." },
+      { label: "inspect_data (#31)", desc: "Dataset health check: per-feature stats, class distribution, imbalance ratio, split counts, constant-feature and scale warnings." },
+      { label: "get_training_curves (#32)", desc: "Loss history with convergence epoch, still_improving flag, and overfitting gap (train vs val accuracy)." },
+      { label: "model_stats (#33)", desc: "Confidence distribution histogram, per-class accuracy + mean confidence, low_confidence_count on train/test/all splits." },
+      { label: "batch_predict (#34)", desc: "Run inference over a CSV file with optional accuracy scoring when a label column is provided." },
+      { label: "Bundled examples", desc: "ml-labs init copies examples/iris.csv (150 rows) and examples/housing.csv (71 rows, regression) into new projects." },
+    ],
+  },
+  {
+    version: "0.2.0",
+    date: "2026-04-20",
     items: [
       { label: "ml-labs CLI", desc: "init, update, docs commands. curl | bash installer writes a shell wrapper to ~/.local/bin/ml-labs." },
       { label: "install.sh", desc: "One-liner installer: clones ~/.ml-labs, installs deps, builds docs, patches PATH." },

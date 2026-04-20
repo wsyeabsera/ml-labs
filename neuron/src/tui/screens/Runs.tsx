@@ -103,7 +103,20 @@ export function Runs() {
       {view === "detail" && detail && (
         <Box flexDirection="column" gap={1}>
           <Text bold>Run #{detail.id}  <Text color={detail.status === "completed" ? "green" : "red"}>{detail.status}</Text></Text>
-          <Text>Accuracy: <Text color="green" bold>{detail.accuracy != null ? `${(detail.accuracy * 100).toFixed(1)}%` : "—"}</Text></Text>
+          {detail.mae != null ? (
+            <Box gap={3}>
+              <Text>MAE: <Text color="cyan" bold>{detail.mae.toFixed(4)}</Text></Text>
+              <Text>RMSE: <Text color="cyan" bold>{detail.rmse?.toFixed(4) ?? "—"}</Text></Text>
+              <Text>R²: <Text color={detail.r2 != null && detail.r2 >= 0.8 ? "green" : "yellow"} bold>{detail.r2?.toFixed(4) ?? "—"}</Text></Text>
+            </Box>
+          ) : (
+            <Box gap={3}>
+              <Text>Train: <Text color="green" bold>{detail.accuracy != null ? `${(detail.accuracy * 100).toFixed(1)}%` : "—"}</Text></Text>
+              {detail.val_accuracy != null && (
+                <Text>Val: <Text color={detail.val_accuracy >= 0.9 ? "green" : "yellow"} bold>{`${(detail.val_accuracy * 100).toFixed(1)}%`}</Text></Text>
+              )}
+            </Box>
+          )}
           {detail.per_class_accuracy && (
             <Box gap={2}>
               {Object.entries(detail.per_class_accuracy).map(([l, v]) => (

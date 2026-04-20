@@ -5,8 +5,8 @@ export const tools: ToolEntry[] = [
   {
     category: "Task",
     name: "create_task",
-    signature: "{ id, kind, feature_shape, sample_shape? }",
-    desc: "Create or reset a task. Defines the schema: id, kind (classification/regression), and input feature shape.",
+    signature: "{ id, kind, feature_shape, sample_shape?, normalize? }",
+    desc: "Create or reset a task. Defines the schema: id, kind (classification/regression), input feature shape, and optional Z-score normalization.",
   },
   {
     category: "Task",
@@ -31,8 +31,14 @@ export const tools: ToolEntry[] = [
   {
     category: "Data",
     name: "load_csv",
-    signature: "{ task_id, path, label_column, feature_columns? }",
-    desc: "Batch-import a CSV file. If feature_columns is omitted, uses every column except the label.",
+    signature: "{ task_id, path, label_column, feature_columns?, test_size? }",
+    desc: "Batch-import a CSV file. test_size (0–0.5) performs a stratified train/test split at load time.",
+  },
+  {
+    category: "Data",
+    name: "inspect_data",
+    signature: "{ task_id }",
+    desc: "Dataset health check: per-feature stats (mean/std/min/max), class distribution, imbalance ratio, train/test split counts, and warnings for constant features or large scale differences.",
   },
   {
     category: "Data",
@@ -75,8 +81,8 @@ export const tools: ToolEntry[] = [
   {
     category: "Training",
     name: "train",
-    signature: "{ task_id, lr?, epochs?, head_arch?, run_id?, auto_register? }",
-    desc: "Train one run against the task. Weights land in the runs table and optionally the active model.",
+    signature: "{ task_id, lr?, epochs?, head_arch?, class_weights?, run_id?, auto_register? }",
+    desc: "Train one run. class_weights=\"balanced\" oversamples minority classes. Trains only on the train split when a test split exists.",
   },
   {
     category: "Training",
@@ -109,6 +115,20 @@ export const tools: ToolEntry[] = [
     name: "suggest_samples",
     signature: "{ task_id, n_suggestions?, confidence_threshold? }",
     desc: "Active learning: batch-evaluate all samples, surface uncertain/misclassified examples, return per-class stats + recommendations.",
+  },
+
+  // Observability
+  {
+    category: "Inspection",
+    name: "get_training_curves",
+    signature: "{ run_id }",
+    desc: "Loss history with derived signals: convergence epoch, still_improving flag, overfitting gap (train vs val accuracy). Includes MAE/RMSE/R² for regression runs.",
+  },
+  {
+    category: "Inspection",
+    name: "model_stats",
+    signature: "{ task_id, split?, confidence_threshold? }",
+    desc: "Run predict on all/train/test samples. Returns confidence histogram (10 bins), per-class accuracy + mean confidence, and low_confidence_count.",
   },
 
   // Run inspection
@@ -186,6 +206,12 @@ export const tools: ToolEntry[] = [
     category: "Inference",
     name: "predict",
     signature: "{ task_id, features }",
-    desc: "Single-sample prediction with confidence scores. Cross-session restore: loads weights into rs-tensor if not in memory.",
+    desc: "Single-sample prediction. Classification: label + confidence + scores. Regression: value + raw_output. Applies normalization and cross-session weight restore automatically.",
+  },
+  {
+    category: "Inference",
+    name: "batch_predict",
+    signature: "{ task_id, path, feature_columns?, label_column? }",
+    desc: "Run inference over a CSV file. Returns per-row predictions (label/confidence or value/error) and optional accuracy if label_column is provided.",
   },
 ]

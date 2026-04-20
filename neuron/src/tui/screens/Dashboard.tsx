@@ -29,7 +29,8 @@ export function Dashboard({ onNavigate }: Props) {
         emptyMessage="No tasks yet. Use create_task via Claude or the MCP server."
         columns={[
           { key: "id", header: "Task ID", width: 24 },
-          { key: "kind", header: "Kind", width: 16 },
+          { key: "kind", header: "Kind", width: 14 },
+          { key: "normalize", header: "Norm", width: 6, render: (r) => (r as { normalize?: boolean }).normalize ? "on" : "—", color: (r) => (r as { normalize?: boolean }).normalize ? "cyan" : "gray" },
           { key: "sampleCount", header: "Samples", width: 10, render: (r) => String(r.sampleCount) },
           { key: "trained", header: "Trained", width: 10, render: (r) => r.trained ? "yes" : "no", color: (r) => r.trained ? "green" : "yellow" },
           {
