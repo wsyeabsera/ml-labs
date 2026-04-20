@@ -161,6 +161,16 @@ export interface ApiInspect {
   warnings?: string[]
 }
 
+export interface ApiSuggestSamples {
+  ok: boolean
+  task_id: string
+  n_samples: number
+  overall_accuracy: number | null
+  per_class: Array<{ label: string; count: number; accuracy: number; avg_confidence: number }>
+  uncertain_samples: Array<{ sample_id: number; true_label: string; predicted_label: string; confidence: number; features: number[] }>
+  recommendations: string[]
+}
+
 // ── Endpoints ─────────────────────────────────────────────────────────────────
 
 export const api = {
@@ -254,6 +264,17 @@ export const api = {
       const data = await res.json() as { ok?: boolean; id?: number; error?: string }
       if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`)
       return data as { ok: true; id: number }
+    }),
+
+  suggestSamples: (taskId: string, opts?: { n_suggestions?: number; confidence_threshold?: number }) =>
+    fetch(`${BASE}/tasks/${encodeURIComponent(taskId)}/suggest_samples`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(opts ?? {}),
+    }).then(async (res) => {
+      const data = await res.json() as ApiSuggestSamples & { error?: string }
+      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`)
+      return data as ApiSuggestSamples
     }),
 
   batchPredict: (taskId: string, csv: string, labelColumn?: string) => {

@@ -18,14 +18,14 @@ import { startTrainBackground } from "./api/trainBg"
 import { handler as predictFn } from "./tools/predict"
 import { softmax, argmax, applyNorm } from "./core/metrics"
 import { rsTensor, clientStatus } from "./core/mcp_client"
-import { loadConfig } from "./adapter/loader"
+import { loadConfig, loadedConfigPath } from "./adapter/loader"
 
 // Force DB initialization via schema import
 import { db } from "./core/db/schema"
 
 const PORT = parseInt(process.env.NEURON_API_PORT ?? "2626")
 const DIST = process.env.DASHBOARD_DIST ?? join(import.meta.dir, "../../dashboard/dist")
-const VERSION = "0.4.0"
+const VERSION = "0.4.1"
 const DB_DIR = (() => {
   const db = process.env.NEURON_DB
   return db ? join(db, "..") : join(import.meta.dir, "../../data")
@@ -200,10 +200,17 @@ async function handleInspect(taskId: string): Promise<Response> {
     }
   }
 
+  let imbalanceRatio: number | null = null
+  if (task.kind !== "regression") {
+    const vals = Object.values(counts)
+    if (vals.length > 1) imbalanceRatio = +(Math.max(...vals) / Math.min(...vals)).toFixed(2)
+  }
+
   return json({
     ok: true, task_id: taskId, kind: task.kind, total: N, splits,
     features: { count: D, names: featureNames, stats: featureStats },
     class_distribution: task.kind !== "regression" ? counts : null,
+    imbalance_ratio: imbalanceRatio,
     normalize_enabled: task.normalize,
     warnings,
   })
@@ -455,6 +462,10 @@ async function handleStartSweep(taskId: string, req: Request): Promise<Response>
             sweep.results[i]!.valAccuracy = run?.valAccuracy ?? null
             sweep.results[i]!.status = run?.status === "completed" ? "done" : "failed"
             if (run?.status !== "completed") sweep.results[i]!.error = `run status: ${run?.status}`
+            recordEvent({
+              source: "api", kind: "sweep_progress", taskId, runId: sweep.results[i]!.runId ?? undefined,
+              payload: { idx: i, total: configs.length, accuracy: run?.accuracy ?? null, status: sweep.results[i]!.status },
+            })
             break
           }
         }
@@ -616,10 +627,29 @@ async function handleBatchPredict(taskId: string, req: Request): Promise<Respons
   return json(result)
 }
 
+// ── Suggest samples ────────────────────────────────────────────────────────────
+
+async function handleSuggestSamples(taskId: string, req: Request): Promise<Response> {
+  const { handler: suggestFn } = await import("./tools/suggest_samples")
+  let body: Record<string, unknown> = {}
+  try { body = (await req.json()) as Record<string, unknown> } catch { /* empty body ok */ }
+  try {
+    const result = await suggestFn({
+      task_id: taskId,
+      n_suggestions: typeof body.n_suggestions === "number" ? body.n_suggestions : 5,
+      confidence_threshold: typeof body.confidence_threshold === "number" ? body.confidence_threshold : 0.7,
+    })
+    return json(result)
+  } catch (e) {
+    return err(e instanceof Error ? e.message : String(e))
+  }
+}
+
 // ── Config inspector ───────────────────────────────────────────────────────────
 
 async function handleConfig(): Promise<Response> {
   const config = await loadConfig()
+  const configPath = loadedConfigPath()
   if (!config) {
     return json({
       ok: true,
@@ -636,7 +666,7 @@ async function handleConfig(): Promise<Response> {
   return json({
     ok: true,
     taskId: config.taskId ?? null,
-    configPath: null,
+    configPath,
     featureShape: config.featureShape ?? null,
     sampleShape: config.sampleShape ?? null,
     hasFeaturize: typeof config.featurize === "function",
@@ -887,6 +917,9 @@ Bun.serve({
 
     const taskBatchMatch = path.match(/^\/api\/tasks\/([^/]+)\/batch_predict$/)
     if (taskBatchMatch && req.method === "POST") return handleBatchPredict(decodeURIComponent(taskBatchMatch[1]!), req)
+
+    const taskSuggestMatch = path.match(/^\/api\/tasks\/([^/]+)\/suggest_samples$/)
+    if (taskSuggestMatch && req.method === "POST") return handleSuggestSamples(decodeURIComponent(taskSuggestMatch[1]!), req)
 
     const runMatch = path.match(/^\/api\/runs\/(\d+)$/)
     if (runMatch && req.method === "GET")        return handleRun(parseInt(runMatch[1]!))

@@ -4,6 +4,20 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v0.4.1 — 2026-04-20
+
+### Fixed
+- `imbalance_ratio` was computed in `inspect_data` but never included in the API response — now returned as `imbalance_ratio` (float, null for regression).
+- `configPath` was hardcoded to `null` in `GET /api/config` even when a config was loaded — now returns the resolved filesystem path.
+- `loadConfig()` global cache would serve stale config if the MCP server and HTTP API processes resolved different working directories — cache is now invalidated on cwd mismatch.
+- `sweep_progress` events were never emitted during a sweep — each config completion now fires a `sweep_progress` event with `idx`, `total`, `accuracy`, and `status`.
+
+### Added
+- `POST /api/tasks/:id/suggest_samples` — HTTP endpoint wrapping the `suggest_samples` MCP tool so the dashboard can call active-learning analysis directly.
+- `api.suggestSamples(taskId, opts?)` client helper in `dashboard/src/lib/api.ts`.
+
+---
+
 ## v0.4.0 — 2026-04-20
 
 ### Added
