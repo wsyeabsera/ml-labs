@@ -111,3 +111,13 @@ Adapter hash guards against loading a model trained with a different `neuron.con
 - `/neuron-publish <run_id> <name>` — publish to registry
 - `/neuron-import [uri]` — import from registry
 - `/neuron-auto <task_id>` — run full auto_train pipeline with coordinator sub-agent
+- `/neuron-show <task_id> [run_id]` — navigate browser dashboard to the run and screenshot (requires chrome-devtools MCP)
+- `/neuron-ask` — check `data/requests.jsonl` for pending browser questions and answer each one
+
+## Dashboard bridge
+
+The browser dashboard runs at `http://localhost:5274` (dev) or `:2626` (prod). It subscribes to `GET /api/events` (SSE) and shows a live activity feed of every `mcp__neuron__*` tool call and run lifecycle event.
+
+- **Browser → terminal**: users submit questions via the "Ask Claude" button in the dashboard. These write to `data/requests.jsonl`. Run `/neuron-ask` to process them.
+- **Terminal → browser**: every tool call and run event is recorded in the `events` table and streamed to the dashboard automatically. No extra steps needed.
+- **Visual verification**: use `/neuron-show <task>` to navigate the browser to a run detail page and screenshot it.

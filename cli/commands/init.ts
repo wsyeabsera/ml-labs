@@ -119,6 +119,19 @@ export async function init(target: string) {
     print_skip("README.md")
   }
 
+  // ── CLAUDE.md ─────────────────────────────────────────────────────────────────
+  const claudeMdPath = join(projectDir, "CLAUDE.md")
+  if (!existsSync(claudeMdPath)) {
+    const claudeMdTemplate = join(templatesDir, "CLAUDE.md")
+    if (existsSync(claudeMdTemplate)) {
+      const tmpl = readFileSync(claudeMdTemplate, "utf-8")
+      writeFileSync(claudeMdPath, tmpl.replace(/\{\{PROJECT_NAME\}\}/g, projectName))
+      print_ok("CLAUDE.md")
+    }
+  } else {
+    print_skip("CLAUDE.md")
+  }
+
   console.log(`
 Done! Next steps:
 
@@ -128,6 +141,8 @@ Done! Next steps:
        /neuron-load iris examples/iris.csv
   4. Train:
        /neuron-auto iris
+  5. Open the dashboard:
+       ml-labs dashboard
 
   Docs: bun run docs  (at ${ML_LABS_DIR})
 `)

@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "bun --hot src/server.ts",
     "tui": "bun src/tui/index.tsx",
-    "build": "bun build src/server.ts src/tui/index.tsx --outdir dist --target bun --minify",
+    "build": "bun build src/server.ts src/tui/index.tsx --outdir dist --target bun --minify --external react-devtools-core",
     "typecheck": "bun run tsc --noEmit"
   },
   "dependencies": {

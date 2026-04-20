@@ -1,9 +1,10 @@
 import { NavLink } from "react-router-dom"
-import { LayoutDashboard, Database, PlayCircle, BarChart3, Cpu, Zap } from "lucide-react"
+import { LayoutDashboard, Database, PlayCircle, BarChart3, Cpu, Zap, SlidersHorizontal, Upload } from "lucide-react"
 import { clsx } from "clsx"
 import { ThemeToggle } from "./ThemeToggle"
 import { useQuery } from "@tanstack/react-query"
 import { api } from "../lib/api"
+import { ActivityFeedWidget } from "./ActivityFeed"
 
 const nav = [
   { to: "/",        label: "Overview",  icon: LayoutDashboard, end: true },
@@ -11,6 +12,8 @@ const nav = [
   { to: "/runs",    label: "Runs",      icon: BarChart3 },
   { to: "/train",   label: "Train",     icon: PlayCircle },
   { to: "/predict", label: "Predict",   icon: Zap },
+  { to: "/sweep",   label: "Sweep",     icon: SlidersHorizontal },
+  { to: "/upload",  label: "Upload",    icon: Upload },
 ]
 
 export function Sidebar() {
@@ -49,6 +52,9 @@ export function Sidebar() {
           </NavLink>
         ))}
       </nav>
+
+      {/* Activity feed */}
+      <ActivityFeedWidget />
 
       {/* Bottom: status + theme */}
       <div className="px-3 py-3 border-t border-[var(--border-subtle)] space-y-2">

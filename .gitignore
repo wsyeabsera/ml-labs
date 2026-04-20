@@ -6,13 +6,16 @@ node_modules/
 # builds
 dist/
 build/
+cli/bin/
 *.js.map
+*.tsbuildinfo
 
-# local data — never commit the dev DB or logs
+# local data — never commit the dev DB, logs, or request queue
 data/*.db
 data/*.db-shm
 data/*.db-wal
 data/*.log
+data/*.jsonl
 
 # local registry (cross-project model bundles)
 .neuron/

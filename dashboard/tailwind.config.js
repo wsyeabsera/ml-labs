@@ -10,7 +10,6 @@ export default {
       },
       colors: {
         // surface layers
-        base:     { DEFAULT: "var(--bg-base)" },
         surface:  { 1: "var(--surface-1)", 2: "var(--surface-2)", 3: "var(--surface-3)" },
         // text
         tx: {

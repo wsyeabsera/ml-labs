@@ -1,1 +1,0 @@
-{"root":["./src/app.tsx","./src/main.tsx","./src/components/empty.tsx","./src/components/pageheader.tsx","./src/components/sidebar.tsx","./src/components/statusdot.tsx","./src/components/themetoggle.tsx","./src/lib/api.ts","./src/lib/theme.ts","./src/routes/overview.tsx","./src/routes/placeholder.tsx","./src/routes/tasks.tsx"],"version":"5.9.3"}

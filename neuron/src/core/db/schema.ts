@@ -5,7 +5,7 @@ import { resolve } from "node:path"
 // Anchor data dir to neuron project root (4 levels up from src/core/db/schema.ts)
 // so the DB path is stable regardless of the shell's cwd when the server starts.
 const NEURON_ROOT = resolve(import.meta.dir, "../../../..")
-const DB_PATH = process.env.NEURON_DB_PATH ?? resolve(NEURON_ROOT, "data/neuron.db")
+const DB_PATH = process.env.NEURON_DB_PATH ?? process.env.NEURON_DB ?? resolve(NEURON_ROOT, "data/neuron.db")
 mkdirSync(resolve(DB_PATH, ".."), { recursive: true })
 
 export const db = new Database(DB_PATH, { create: true })
@@ -87,6 +87,21 @@ ensureColumns("runs", [
 ])
 ensureColumns("samples", ["raw TEXT", "split TEXT DEFAULT 'train'"])
 ensureColumns("tasks", ["normalize INTEGER DEFAULT 0", "feature_names TEXT"])
+
+// Global event bus — shared by MCP server and HTTP API via SQLite WAL
+db.exec(`
+  CREATE TABLE IF NOT EXISTS events (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts         INTEGER NOT NULL DEFAULT (CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)),
+    source     TEXT NOT NULL,
+    kind       TEXT NOT NULL,
+    task_id    TEXT,
+    run_id     INTEGER,
+    payload    TEXT NOT NULL DEFAULT '{}'
+  );
+  CREATE INDEX IF NOT EXISTS idx_events_ts   ON events(ts DESC);
+  CREATE INDEX IF NOT EXISTS idx_events_task ON events(task_id, ts DESC);
+`)
 
 // auto_runs tracks coordinator-driven auto_train invocations
 db.exec(`

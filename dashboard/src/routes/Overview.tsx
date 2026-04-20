@@ -6,6 +6,7 @@ import { api, type ApiTask } from "../lib/api"
 import { PageHeader } from "../components/PageHeader"
 import { StatusDot } from "../components/StatusDot"
 import { Empty } from "../components/Empty"
+import { ConfigCard } from "../components/ConfigCard"
 import { clsx } from "clsx"
 
 function pct(v: number | null) {
@@ -139,6 +140,8 @@ export function Overview() {
         title="Overview"
         subtitle="All tasks at a glance. Click any task to drill in."
       />
+
+      <ConfigCard />
 
       {isLoading && (
         <div className="flex items-center gap-2 text-sm text-[var(--text-3)]">

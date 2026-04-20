@@ -5,11 +5,11 @@ import { spawn } from "bun"
 import { resolve } from "node:path"
 
 const server = spawn({
-  cmd: ["bun", "run", "/Users/yab/Projects/ml-agent/neuron/src/server.ts"],
+  cmd: ["bun", "run", resolve(import.meta.dir, "../src/server.ts")],
   stdin: "pipe",
   stdout: "pipe",
   stderr: "pipe",
-  cwd: "/Users/yab/Projects/ml-agent",
+  cwd: resolve(import.meta.dir, "../.."),
 })
 
 let id = 0

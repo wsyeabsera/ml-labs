@@ -152,3 +152,8 @@ export function finalizeRun(id: number, params: {
 export function countRuns(taskId: string): number {
   return (db.query("SELECT COUNT(*) as c FROM runs WHERE task_id = ?").get(taskId) as { c: number }).c
 }
+
+export function listAllRuns(limit = 100, offset = 0): Run[] {
+  return (db.query("SELECT * FROM runs ORDER BY id DESC LIMIT ? OFFSET ?")
+    .all(limit, offset) as DbRow[]).map(rowToRun)
+}

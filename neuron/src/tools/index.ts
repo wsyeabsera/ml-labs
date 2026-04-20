@@ -1,5 +1,6 @@
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js"
 import { z } from "zod"
+import { recordEvent } from "../core/db/events"
 
 import * as createTask from "./create_task"
 import * as collect from "./collect"
@@ -78,6 +79,10 @@ export async function dispatchTool(
 ): Promise<unknown> {
   const mod = modules.find((m) => m.name === name)
   if (!mod) throw new Error(`Unknown tool: ${name}`)
+
+  const taskId = typeof args.task_id === "string" ? args.task_id : undefined
+  const runId = typeof args.run_id === "number" ? args.run_id : undefined
+  recordEvent({ source: "mcp", kind: "tool_call", taskId, runId, payload: { tool: name } })
 
   const schema = z.object(mod.schema)
   const parsed = schema.parse(args)
