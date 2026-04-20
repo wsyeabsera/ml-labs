@@ -1,0 +1,38 @@
+# dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# builds
+dist/
+build/
+*.js.map
+
+# local data — never commit the dev DB or logs
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/*.log
+
+# local registry (cross-project model bundles)
+.neuron/
+
+# env + local overrides
+*.env
+*.env.local
+.env.local
+.env.*.local
+settings.local.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# editor
+.cursor/
+.idea/
+*.swp
+*.swo
+
+# cleanup staging
+_trash/

@@ -1,0 +1,18 @@
+{
+  "name": "ml-labs",
+  "version": "0.2.0",
+  "description": "A Claude-native ML platform — train, sweep, and ship models from your terminal",
+  "private": true,
+  "workspaces": ["neuron", "site"],
+  "scripts": {
+    "docs": "bun --cwd site run dev",
+    "docs:build": "bun --cwd site run build",
+    "docs:preview": "bun --cwd site run preview",
+    "mcp:dev": "bun --cwd neuron run dev",
+    "mcp:build": "bun --cwd neuron run build",
+    "tui": "bun --cwd neuron run tui"
+  },
+  "engines": {
+    "bun": ">=1.1.0"
+  }
+}

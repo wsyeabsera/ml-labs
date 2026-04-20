@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "rs-tensor": {
+      "type": "http",
+      "url": "https://openings-trivia-thereafter-reed.trycloudflare.com/mcp"
+    },
+    "neuron": {
+      "command": "bun",
+      "args": ["run", "/Users/yab/Projects/ml-agent/neuron/src/server.ts"]
+    }
+  }
+}

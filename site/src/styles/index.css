@@ -1,0 +1,111 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body {
+    @apply bg-lab-bg text-lab-text font-sans antialiased;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background:
+      radial-gradient(1000px 600px at 10% -10%, rgba(34, 211, 238, 0.08), transparent 60%),
+      radial-gradient(1000px 600px at 110% 10%, rgba(168, 85, 247, 0.08), transparent 60%),
+      radial-gradient(900px 500px at 50% 120%, rgba(74, 222, 128, 0.05), transparent 60%),
+      #0a0e1a;
+    min-height: 100vh;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply text-lab-heading font-semibold tracking-tight;
+  }
+
+  ::selection {
+    @apply bg-cyan-neon/30 text-lab-heading;
+  }
+}
+
+@layer components {
+  .lab-panel {
+    @apply bg-lab-panel/60 border border-lab-border rounded-xl backdrop-blur-sm;
+  }
+
+  .lab-panel-hover {
+    @apply transition-all duration-200 hover:border-cyan-neon/50 hover:shadow-glow;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium font-mono;
+  }
+
+  .chip-cyan {
+    @apply chip bg-cyan-neon/10 text-cyan-neon border border-cyan-neon/30;
+  }
+
+  .chip-purple {
+    @apply chip bg-purple-neon/10 text-purple-neon border border-purple-neon/30;
+  }
+
+  .chip-green {
+    @apply chip bg-green-neon/10 text-green-neon border border-green-neon/30;
+  }
+
+  .chip-orange {
+    @apply chip bg-orange-neon/10 text-orange-neon border border-orange-neon/30;
+  }
+
+  .chip-pink {
+    @apply chip bg-pink-neon/10 text-pink-neon border border-pink-neon/30;
+  }
+
+  .gradient-text {
+    background: linear-gradient(135deg, #22d3ee 0%, #a855f7 50%, #f472b6 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .grid-bg {
+    background-image:
+      linear-gradient(rgba(148, 163, 184, 0.07) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(148, 163, 184, 0.07) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  .scroll-fade-mask {
+    mask-image: linear-gradient(to bottom, black 0%, black 85%, transparent 100%);
+  }
+}
+
+/* shiki adjustments */
+pre.shiki {
+  @apply rounded-xl p-5 overflow-x-auto text-sm leading-relaxed border border-lab-border;
+  background: #0b1120 !important;
+}
+
+code {
+  font-family: "JetBrains Mono", Menlo, ui-monospace, monospace;
+}
+
+/* custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-lab-border rounded-full;
+}
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-cyan-neon/40;
+}
