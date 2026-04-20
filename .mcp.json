@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "rs-tensor": {
-      "type": "http",
-      "url": "https://openings-trivia-thereafter-reed.trycloudflare.com/mcp"
+      "command": "/Users/yab/.ml-labs/rs-tensor/target/release/mcp",
+      "args": []
     },
     "neuron": {
       "command": "bun",

@@ -4,6 +4,19 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v0.4.2 — 2026-04-20
+
+### Added
+- **auto_train Tier 1 upgrade** — the coordinator is now signal-driven, regression-aware, overfit-aware, and budget-hard-capped. Same `auto_train` tool signature; richer decisions under the hood.
+  - **Expanded tool allowlist** — coordinator now gets `inspect_data`, `get_training_curves`, `compare_runs`, `model_stats` in addition to the prior 11 tools.
+  - **Structured refinement grid** — wave 2 is no longer a prose paragraph. Replaced with explicit signal-driven rules: `still_improving` → 2× epochs; `overfit_gap > 0.15` → fewer epochs + shallower arch; early convergence → finer LR; critical underfit → wider hidden layers; high per-class variance → add `class_weights="balanced"` variant. Reproducible across runs.
+  - **Regression-aware procedure** — coordinator branches on `task.kind`. For regression, target is R² instead of accuracy, diagnosis uses R² buckets, classification-only tools (`suggest_samples`, class weighting) are skipped.
+  - **Imbalance-aware suggest_hyperparams** — `suggest_hyperparams` accepts optional `data_health.imbalance_ratio`; when > 3, the sampling prompt and heuristic fallback flag `class_weights="balanced"`. Coordinator calls `inspect_data` first and threads the ratio in.
+  - **Overfit-aware winner selection** — winner is chosen by val_accuracy when available; if `train - val > 0.15`, apply penalty `score = val_acc - 0.5 × (train - val)`. Prevents promoting overfit runs.
+  - **Hard budget enforcement** — coordinator is now killed via `AbortSignal` at `budget_s × 1.1` seconds. New `AutoRun.status` value `"budget_exceeded"` recorded on overrun instead of silent overrun.
+
+---
+
 ## v0.4.1 — 2026-04-20
 
 ### Fixed

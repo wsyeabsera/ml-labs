@@ -57,8 +57,11 @@ export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
 
   recordEvent({ source: "mcp", kind: "auto_started", taskId: args.task_id, payload: { autoRunId: autoRun.id, accuracyTarget: args.accuracy_target, budgetS: args.budget_s } })
 
+  const taskKind: "classification" | "regression" = task.kind === "regression" ? "regression" : "classification"
+
   const result = await runCoordinator({
     task_id: args.task_id,
+    task_kind: taskKind,
     auto_run_id: autoRun.id,
     accuracy_target: args.accuracy_target,
     max_waves: args.max_waves,

@@ -7,7 +7,7 @@ import { updateAutoRun } from "../db/auto"
 const SERVER_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "../../server.ts")
 
 export interface CoordinatorResult {
-  status: "completed" | "data_issue" | "failed"
+  status: "completed" | "data_issue" | "failed" | "budget_exceeded"
   run_id: number | null
   accuracy: number | null
   waves_used: number
@@ -19,10 +19,14 @@ export interface CoordinatorResult {
 
 const COORDINATOR_ALLOWED_TOOLS = [
   "mcp__neuron__preflight_check",
+  "mcp__neuron__inspect_data",
   "mcp__neuron__suggest_hyperparams",
   "mcp__neuron__run_sweep",
   "mcp__neuron__evaluate",
   "mcp__neuron__diagnose",
+  "mcp__neuron__get_training_curves",
+  "mcp__neuron__compare_runs",
+  "mcp__neuron__model_stats",
   "mcp__neuron__suggest_samples",
   "mcp__neuron__list_runs",
   "mcp__neuron__get_run_status",
@@ -38,6 +42,14 @@ export async function runCoordinator(
   const t0 = Date.now()
   const ac = new AbortController()
   if (signal) signal.addEventListener("abort", () => ac.abort())
+
+  // Hard budget: 10% grace over the declared budget, then kill.
+  const hardTimeoutMs = Math.round(promptArgs.budget_s * 1.1 * 1000)
+  let budgetExpired = false
+  const budgetTimer = setTimeout(() => {
+    budgetExpired = true
+    ac.abort()
+  }, hardTimeoutMs)
 
   const prompt = buildCoordinatorPrompt(promptArgs)
   let sessionId = ""
@@ -73,7 +85,25 @@ export async function runCoordinator(
       }
     }
   } catch (e) {
+    clearTimeout(budgetTimer)
     const wallS = Math.round((Date.now() - t0) / 1000)
+    if (budgetExpired) {
+      const verdict = `Budget of ${promptArgs.budget_s}s exceeded (hard timeout at ${Math.round(hardTimeoutMs / 1000)}s).`
+      updateAutoRun(promptArgs.auto_run_id, {
+        status: "budget_exceeded",
+        finished_at: new Date().toISOString(),
+        verdict,
+      })
+      return {
+        status: "budget_exceeded",
+        run_id: null,
+        accuracy: null,
+        waves_used: 0,
+        verdict,
+        session_id: sessionId,
+        wall_clock_s: wallS,
+      }
+    }
     updateAutoRun(promptArgs.auto_run_id, {
       status: "failed",
       finished_at: new Date().toISOString(),
@@ -89,6 +119,8 @@ export async function runCoordinator(
       wall_clock_s: wallS,
     }
   }
+
+  clearTimeout(budgetTimer)
 
   // Parse JSON verdict from result — look for the last {...} block
   const match = resultText.match(/\{[^{}]*"status"\s*:\s*"[^"]+[^{}]*\}/s)
