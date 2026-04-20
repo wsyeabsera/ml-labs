@@ -662,6 +662,11 @@ impl TensorServer {
         }
 
         let mut loss_history = Vec::with_capacity(args.epochs);
+        let weight_decay = args.weight_decay.unwrap_or(0.0);
+        let patience = args.early_stop_patience;
+        let mut best_loss = f32::INFINITY;
+        let mut patience_counter: usize = 0;
+        let mut epochs_done: usize = 0;
 
         for _epoch in 0..args.epochs {
 
@@ -759,10 +764,17 @@ impl TensorServer {
                     }
                 }
 
-                // SGD update
+                // SGD update with optional L2 weight decay
                 let w_tensor = store.get_mut(&w_name).unwrap();
-                for i in 0..w_tensor.data.len() {
-                    w_tensor.data[i] -= args.lr * w_grad[i];
+                if weight_decay > 0.0 {
+                    for i in 0..w_tensor.data.len() {
+                        let g = w_grad[i] + weight_decay * w_tensor.data[i];
+                        w_tensor.data[i] -= args.lr * g;
+                    }
+                } else {
+                    for i in 0..w_tensor.data.len() {
+                        w_tensor.data[i] -= args.lr * w_grad[i];
+                    }
                 }
                 w_tensor.grad = Some(w_grad);
 
@@ -777,6 +789,18 @@ impl TensorServer {
             }
 
             loss_history.push(loss);
+            epochs_done += 1;
+
+            // Early stopping: break if no improvement for `patience` epochs
+            if let Some(pat) = patience {
+                if loss < best_loss - 1e-6 {
+                    best_loss = loss;
+                    patience_counter = 0;
+                } else {
+                    patience_counter += 1;
+                    if patience_counter >= pat { break; }
+                }
+            }
         }
 
         // Sample loss history (at most 50 points)
@@ -787,15 +811,20 @@ impl TensorServer {
             loss_history.iter().step_by(step).copied().collect()
         };
 
+        let stopped_early = patience.is_some() && epochs_done < args.epochs;
+
         Ok(CallToolResult::success(vec![Content::text(
             serde_json::to_string_pretty(&json!({
                 "op": "train_mlp",
                 "mlp": args.mlp,
                 "epochs": args.epochs,
+                "epochs_done": epochs_done,
+                "stopped_early": stopped_early,
                 "initial_loss": loss_history.first().unwrap_or(&0.0),
                 "final_loss": loss_history.last().unwrap_or(&0.0),
                 "loss_history_sampled": sampled,
                 "lr": args.lr,
+                "weight_decay": weight_decay,
             })).unwrap()
         )]))
     }

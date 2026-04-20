@@ -4,6 +4,22 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v0.6.0 — 2026-04-20
+
+### Added (auto_train Tier 3 — capability expansion)
+- **rs-tensor `train_mlp` gains two new optional args**: `weight_decay` (L2 regularizer, default 0) and `early_stop_patience` (stops training when loss has not improved for N consecutive epochs). The response now also carries `epochs_done` and `stopped_early` so the controller can surface whether the budget was fully used.
+- **New hyperparameter levers in neuron**: `train` tool, `TrainHyperparams`, `SweepConfig`, and `RunSignals.config` all thread `weight_decay` and `early_stop_patience` end-to-end. The sweep orchestrator's sub-agent prompt forwards both to `mcp__neuron__train`.
+- **Refinement rules use the new levers**:
+  - Overfit rule (`overfit_gap > 0.15`) now also proposes a `weight_decay=0.01` variant in addition to the shallower-arch variant — proper regularization, not just capacity reduction.
+  - "Still improving" rule now attaches `early_stop_patience ≈ 10% of epochs` to the 2× epoch variant as a safety net.
+- **Multi-strategy tournament mode** (opt-in via `auto_train({ tournament: true })`): each wave runs 3 planners in parallel with different priors (`aggressive` / `conservative` / `exploratory`). Their configs are merged, deduplicated, and swept together. Trades cost for robustness on hard tasks. Default is single-planner (unchanged behavior).
+- **Richer `auto_wave_*` events**: `auto_wave_started` now includes strategy and elapsed_s; `auto_wave_completed` adds `best_overall_run_id/metric`, `configs_tried`, `max_waves`, `elapsed_s`, `eta_s` (based on avg wave duration × remaining waves), `is_overfit`, and `target_reached`. Enables live progress + ETA in the dashboard without changing the SSE channel.
+
+### Breaking
+- **Users must run `ml-labs update`** (or `ml-labs build`) to rebuild the rs-tensor binary — older binaries will reject the new `weight_decay` and `early_stop_patience` parameters. The installer already runs `cargo build --release --bin mcp` via the `update` path.
+
+---
+
 ## v0.5.0 — 2026-04-20
 
 ### Changed (major internal rewrite — public tool signature unchanged)

@@ -12,6 +12,8 @@ export interface TrainHyperparams {
   lr: number
   epochs: number
   mlpName?: string
+  weightDecay?: number
+  earlyStopPatience?: number
 }
 
 export interface TrainProgress {
@@ -161,9 +163,16 @@ export async function trainHead<S>(opts: {
   // 6. Train
   emit({ stage: "train", message: `Training for ${hyperparams.epochs} epochs (lr=${hyperparams.lr})…` })
   throwIfAborted(signal)
-  const trainResult = await rsTensor.trainMlp(mlpName, inputsName, targetsName, hyperparams.lr, hyperparams.epochs)
+  const trainResult = await rsTensor.trainMlp(
+    mlpName, inputsName, targetsName, hyperparams.lr, hyperparams.epochs,
+    {
+      ...(hyperparams.weightDecay !== undefined ? { weight_decay: hyperparams.weightDecay } : {}),
+      ...(hyperparams.earlyStopPatience !== undefined ? { early_stop_patience: hyperparams.earlyStopPatience } : {}),
+    },
+  )
   const lossHistory = trainResult.loss_history_sampled ?? []
-  log(`Training done — final loss: ${lossHistory.at(-1)?.toFixed(4) ?? "?"}`)
+  const epochsDone = trainResult.epochs_done ?? hyperparams.epochs
+  log(`Training done — final loss: ${lossHistory.at(-1)?.toFixed(4) ?? "?"}${trainResult.stopped_early ? ` (early-stopped at epoch ${epochsDone})` : ""}`)
 
   // 7. Evaluate
   emit({ stage: "eval", message: "Evaluating…" })

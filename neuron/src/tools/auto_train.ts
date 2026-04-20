@@ -43,6 +43,10 @@ export const schema = {
     .string()
     .optional()
     .describe("Registry version string (default: today's date)"),
+  tournament: z
+    .boolean()
+    .default(false)
+    .describe("Enable multi-strategy tournament mode: for each wave run 3 parallel planners (aggressive/conservative/exploratory) and merge their proposals. Trades cost for robustness on hard tasks."),
 }
 
 export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
@@ -69,6 +73,7 @@ export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
     promote: args.promote,
     publish_name: args.publish_name,
     publish_version: args.publish_version ?? new Date().toISOString().slice(0, 10),
+    tournament: args.tournament,
   })
 
   recordEvent({ source: "mcp", kind: "auto_completed", taskId: args.task_id, payload: { autoRunId: autoRun.id, status: result.status, runId: result.run_id, accuracy: result.accuracy, wallClockS: result.wall_clock_s } })

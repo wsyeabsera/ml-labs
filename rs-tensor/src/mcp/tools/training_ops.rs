@@ -37,6 +37,13 @@ pub struct TrainMlpArgs {
     pub lr: f32,
     /// Number of training epochs
     pub epochs: usize,
+    /// Optional L2 weight decay coefficient (default: 0.0 = no decay). Typical values: 1e-4 .. 1e-2.
+    #[serde(default)]
+    pub weight_decay: Option<f32>,
+    /// Optional early-stopping patience in epochs. If set, training stops when loss has not improved
+    /// for this many consecutive epochs. Reports epochs_done in the response.
+    #[serde(default)]
+    pub early_stop_patience: Option<usize>,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]

@@ -4,7 +4,7 @@ import { runSweep } from "../sweep/orchestrator"
 import type { SweepConfig } from "../sweep/configs"
 import { collectSignals, computeDataHealth, type RunSignals } from "./signals"
 import { refineFromSignals, shouldContinue } from "./rules"
-import { runPlanner, seedPlan } from "./planner"
+import { runPlanner, runTournament, seedPlan } from "./planner"
 import { lookupBestPattern, savePattern, taskFingerprint } from "./patterns"
 import {
   saveVerdictJson,
@@ -25,6 +25,7 @@ export interface ControllerArgs {
   promote: boolean
   publish_name?: string
   publish_version?: string
+  tournament?: boolean
 }
 
 export interface ControllerResult {
@@ -69,6 +70,7 @@ export async function runController(args: ControllerArgs): Promise<ControllerRes
   const elapsed = () => Math.round((Date.now() - t0) / 1000)
   const isRegression = args.task_kind === "regression"
   const metricName: "accuracy" | "r2" = isRegression ? "r2" : "accuracy"
+  const waveDurationsS: number[] = []
 
   // Step 1: data health + preflight
   const data = computeDataHealth(args.task_id)
@@ -159,7 +161,9 @@ export async function runController(args: ControllerArgs): Promise<ControllerRes
       const rulesFallback = refineFromSignals(bundle)
       const autoRunNow = getAutoRun(args.auto_run_id)
       const reflection = autoRunNow?.decision_log ?? []
-      plan = await runPlanner({ bundle, reflection, fallback: rulesFallback, signal: ac.signal })
+      plan = args.tournament
+        ? await runTournament({ bundle, reflection, fallback: rulesFallback, signal: ac.signal })
+        : await runPlanner({ bundle, reflection, fallback: rulesFallback, signal: ac.signal })
     }
 
     log(args.auto_run_id, `sweep_wave_${wavesDone + 1}_plan`, plan.rationale, {
@@ -172,11 +176,19 @@ export async function runController(args: ControllerArgs): Promise<ControllerRes
       source: "mcp",
       kind: "auto_wave_started",
       taskId: args.task_id,
-      payload: { auto_run_id: args.auto_run_id, wave: wavesDone + 1, configs: plan.configs.length },
+      payload: {
+        auto_run_id: args.auto_run_id,
+        wave: wavesDone + 1,
+        configs: plan.configs.length,
+        strategy: plan.source,
+        elapsed_s: elapsed(),
+      },
     })
 
     // Run sweep (parallel via existing sub-agent infra)
+    const waveT0 = Date.now()
     const results = await runSweep(args.task_id, plan.configs, 3, ac.signal)
+    waveDurationsS.push(Math.round((Date.now() - waveT0) / 1000))
     const completedRunIds = results.filter((r) => r.status === "completed" && r.run_id != null).map((r) => r.run_id!)
     const failedCount = results.filter((r) => r.status === "failed").length
     lastWaveRunIds = completedRunIds
@@ -212,6 +224,18 @@ export async function runController(args: ControllerArgs): Promise<ControllerRes
         failed: failedCount,
       })
 
+    // Partial verdict + ETA
+    const bestOverallSoFar = allRunSignals.reduce<RunSignals | null>(
+      (acc, r) => (acc == null || (r.metric ?? -Infinity) > (acc.metric ?? -Infinity)) ? r : acc,
+      null,
+    )
+    const avgWaveS = waveDurationsS.reduce((a, b) => a + b, 0) / waveDurationsS.length
+    const remainingWaves = Math.max(0, args.max_waves - wavesDone)
+    const etaS = Math.round(avgWaveS * remainingWaves)
+    const isOverfitSoFar = bestOverallSoFar != null && !isRegression
+      && bestOverallSoFar.accuracy !== null && bestOverallSoFar.val_accuracy !== null
+      && (bestOverallSoFar.accuracy - bestOverallSoFar.val_accuracy) > 0.15
+
     recordEvent({
       source: "mcp",
       kind: "auto_wave_completed",
@@ -221,6 +245,15 @@ export async function runController(args: ControllerArgs): Promise<ControllerRes
         wave: wavesDone,
         best_run_id: bestThisWave?.run_id ?? null,
         best_metric: bestThisWave?.metric ?? null,
+        best_overall_run_id: bestOverallSoFar?.run_id ?? null,
+        best_overall_metric: bestOverallSoFar?.metric ?? null,
+        configs_tried: allRunIds.length,
+        waves_used: wavesDone,
+        max_waves: args.max_waves,
+        elapsed_s: elapsed(),
+        eta_s: etaS,
+        is_overfit: isOverfitSoFar,
+        target_reached: (bestOverallSoFar?.metric ?? -Infinity) >= args.accuracy_target,
       },
     })
 

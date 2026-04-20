@@ -14,7 +14,7 @@ export interface DataHealth {
 
 export interface RunSignals {
   run_id: number
-  config: { lr?: number; epochs?: number; head_arch?: number[]; class_weights?: "balanced" }
+  config: { lr?: number; epochs?: number; head_arch?: number[]; class_weights?: "balanced"; weight_decay?: number; early_stop_patience?: number }
   status: Run["status"]
   metric: number | null
   metric_name: "accuracy" | "r2"
@@ -131,11 +131,17 @@ export function collectRunSignals(run_id: number, isRegression: boolean): RunSig
 
   const loss = run.lossHistory ?? []
   const epochsRequested = (run.hyperparams as { epochs?: number }).epochs ?? null
+  const hp = run.hyperparams as {
+    lr?: number; epochs?: number; headArch?: number[]; classWeights?: "balanced";
+    weightDecay?: number; earlyStopPatience?: number
+  }
   const config = {
-    lr: (run.hyperparams as { lr?: number }).lr,
-    epochs: (run.hyperparams as { epochs?: number }).epochs,
-    head_arch: (run.hyperparams as { headArch?: number[] }).headArch,
-    class_weights: (run.hyperparams as { classWeights?: "balanced" }).classWeights,
+    lr: hp.lr,
+    epochs: hp.epochs,
+    head_arch: hp.headArch,
+    class_weights: hp.classWeights,
+    weight_decay: hp.weightDecay,
+    early_stop_patience: hp.earlyStopPatience,
   }
 
   const metric = isRegression ? run.r2 : (run.valAccuracy ?? run.accuracy)

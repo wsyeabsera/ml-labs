@@ -3,6 +3,8 @@ export interface SweepConfig {
   epochs?: number
   head_arch?: number[]
   class_weights?: "balanced"
+  weight_decay?: number
+  early_stop_patience?: number
 }
 
 export interface SearchSpec {

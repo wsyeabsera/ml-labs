@@ -78,20 +78,35 @@ export function refineFromSignals(bundle: SignalBundle): RefinementPlan {
   const configs: SweepConfig[] = []
   const fired: string[] = []
 
-  // Rule A: still improving → 2x epochs
+  // Rule A: still improving → 2x epochs + early stopping as safety net
   if (best.still_improving) {
-    configs.push({ lr: baseLr, epochs: baseEpochs * 2, head_arch: baseArch })
-    fired.push("A:still_improving→2x epochs")
+    configs.push({
+      lr: baseLr,
+      epochs: baseEpochs * 2,
+      head_arch: baseArch,
+      early_stop_patience: Math.max(20, Math.round(baseEpochs * 0.1)),
+    })
+    fired.push("A:still_improving→2x epochs + early_stop")
   }
 
-  // Rule B: overfit → fewer epochs + shallower
+  // Rule B: overfit → fewer epochs + shallower, AND try weight_decay as proper regularizer
   if (best.overfit_gap !== null && best.overfit_gap > 0.15) {
     configs.push({
       lr: baseLr,
       epochs: Math.max(100, Math.round(baseEpochs * 0.7)),
       head_arch: shallowerArch(baseArch, k, d),
     })
-    fired.push("B:overfit→shorter + shallower")
+    fired.push("B1:overfit→shorter + shallower")
+    // Only add weight_decay variant if not already tried
+    if (base.weight_decay === undefined || base.weight_decay === 0) {
+      configs.push({
+        lr: baseLr,
+        epochs: baseEpochs,
+        head_arch: baseArch,
+        weight_decay: 0.01,
+      })
+      fired.push("B2:overfit→weight_decay=0.01")
+    }
   }
 
   // Rule C: converged too fast → finer LR

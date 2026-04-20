@@ -8,16 +8,33 @@ import { refineFromSignals, type RefinementPlan } from "./rules"
 
 const SERVER_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "../../server.ts")
 
+export type PlannerStrategy = "balanced" | "aggressive" | "conservative" | "exploratory"
+
+const STRATEGY_INSTRUCTIONS: Record<PlannerStrategy, string> = {
+  balanced: "Use balanced judgment — weigh signals evenly, match the rule-based proposal closely unless you see a clear reason to deviate.",
+  aggressive: "Prefer exploration — try higher LR (up to the 0.1 cap), wider architectures, more epochs. Accept higher variance for potential breakthrough.",
+  conservative: "Prefer small, safe steps — LR variations within ±25%, regularize aggressively (weight_decay 0.01+, smaller arch, fewer epochs, early stopping). Avoid overfitting.",
+  exploratory: "Prefer diversity — include atypical configs: unusual LR, mixed depths, class_weights even when imbalance is mild, deliberately different epoch counts. Cover more of the search space.",
+}
+
 export interface PlannerPlan {
   configs: SweepConfig[]
   rationale: string
   rules_fired: string[]
-  source: "planner" | "rules" | "hybrid"
+  source: "planner" | "rules" | "hybrid" | "tournament"
+  strategy?: PlannerStrategy
 }
 
-function buildPlannerPrompt(bundle: SignalBundle, reflection: AutoLogEntry[], fallback: RefinementPlan): string {
+function buildPlannerPrompt(
+  bundle: SignalBundle,
+  reflection: AutoLogEntry[],
+  fallback: RefinementPlan,
+  strategy: PlannerStrategy,
+): string {
   const recent = reflection.slice(-6).map((e) => `  [${e.stage}] ${e.note}`).join("\n")
-  return `You are the wave planner for the Neuron auto-trainer. You only decide what hyperparameter configs to try next.
+  return `You are the wave planner for the Neuron auto-trainer (strategy: ${strategy}). You only decide what hyperparameter configs to try next.
+
+STRATEGY DIRECTIVE: ${STRATEGY_INSTRUCTIONS[strategy]}
 
 TASK: "${bundle.task_id}" (kind=${bundle.task_kind})
 TARGET: ${bundle.target.metric} ≥ ${bundle.target.value}
@@ -48,7 +65,7 @@ rules fired: ${fallback.rules_fired.join(", ")}
 YOUR JOB: propose 2–4 hyperparameter configs for the next wave.
 
 CONSTRAINTS:
-- Each config is a JSON object with optional: lr (0.001–0.1), epochs (100–3000), head_arch (number[] starting with D=${bundle.data.d} and ending with K=${bundle.data.k}), class_weights ("balanced" — classification only)
+- Each config is a JSON object with optional: lr (0.001–0.1), epochs (100–3000), head_arch (number[] starting with D=${bundle.data.d} and ending with K=${bundle.data.k}), class_weights ("balanced" — classification only), weight_decay (0.0–0.1, L2 regularizer), early_stop_patience (int, epochs to wait for improvement before stopping)
 - You MUST return STRICTLY this JSON and nothing else:
   {"configs":[...],"rationale":"<one short sentence>","rules_fired":["name1","name2"]}
 - Prefer building on the rule-based proposal if the signals are clear-cut. Deviate when the decision log suggests a pattern worth exploring.
@@ -60,9 +77,11 @@ export async function runPlanner(opts: {
   bundle: SignalBundle
   reflection: AutoLogEntry[]
   fallback: RefinementPlan
+  strategy?: PlannerStrategy
   signal?: AbortSignal
 }): Promise<PlannerPlan> {
-  const prompt = buildPlannerPrompt(opts.bundle, opts.reflection, opts.fallback)
+  const strategy = opts.strategy ?? "balanced"
+  const prompt = buildPlannerPrompt(opts.bundle, opts.reflection, opts.fallback, strategy)
   const ac = new AbortController()
   if (opts.signal) opts.signal.addEventListener("abort", () => ac.abort())
 
@@ -116,9 +135,55 @@ export async function runPlanner(opts: {
       rationale: parsed.rationale ?? "(planner)",
       rules_fired: parsed.rules_fired ?? [],
       source: "planner",
+      strategy,
     }
   } catch {
     return { ...opts.fallback, source: "rules" }
+  }
+}
+
+/**
+ * Tournament mode: run three planners in parallel with different strategies,
+ * merge and dedupe configs, return combined plan. Trades cost for robustness.
+ */
+export async function runTournament(opts: {
+  bundle: SignalBundle
+  reflection: AutoLogEntry[]
+  fallback: RefinementPlan
+  signal?: AbortSignal
+}): Promise<PlannerPlan> {
+  const strategies: PlannerStrategy[] = ["aggressive", "conservative", "exploratory"]
+  const plans = await Promise.all(
+    strategies.map((strategy) => runPlanner({ ...opts, strategy })),
+  )
+
+  // Merge configs, dedupe by JSON key, cap at 6 total
+  const seen = new Set<string>()
+  const merged: SweepConfig[] = []
+  const firedAll: string[] = []
+  const rationaleParts: string[] = []
+  for (const p of plans) {
+    rationaleParts.push(`[${p.strategy ?? "?"}] ${p.rationale}`)
+    firedAll.push(...p.rules_fired.map((r) => `${p.strategy ?? "?"}:${r}`))
+    for (const c of p.configs) {
+      const key = JSON.stringify(c)
+      if (!seen.has(key)) {
+        seen.add(key)
+        merged.push(c)
+        if (merged.length >= 6) break
+      }
+    }
+    if (merged.length >= 6) break
+  }
+
+  // If all planners failed, fall back to rules
+  if (merged.length === 0) return { ...opts.fallback, source: "rules" }
+
+  return {
+    configs: merged,
+    rationale: rationaleParts.join(" | "),
+    rules_fired: firedAll,
+    source: "tournament",
   }
 }
 

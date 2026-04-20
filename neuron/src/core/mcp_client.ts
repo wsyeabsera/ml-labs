@@ -110,8 +110,22 @@ export const rsTensor = {
   initMlp: (architecture: number[], name = "mlp") =>
     call<{ weight_names: string[] }>("init_mlp", { architecture, name }),
 
-  trainMlp: (mlp: string, inputs: string, targets: string, lr: number, epochs: number) =>
-    call<{ loss_history_sampled?: number[]; final_loss?: number }>("train_mlp", { mlp, inputs, targets, lr, epochs }),
+  trainMlp: (
+    mlp: string,
+    inputs: string,
+    targets: string,
+    lr: number,
+    epochs: number,
+    opts?: { weight_decay?: number; early_stop_patience?: number },
+  ) =>
+    call<{ loss_history_sampled?: number[]; final_loss?: number; epochs_done?: number; stopped_early?: boolean }>(
+      "train_mlp",
+      {
+        mlp, inputs, targets, lr, epochs,
+        ...(opts?.weight_decay !== undefined ? { weight_decay: opts.weight_decay } : {}),
+        ...(opts?.early_stop_patience !== undefined ? { early_stop_patience: opts.early_stop_patience } : {}),
+      },
+    ),
 
   evaluateMlp: (mlp: string, inputs: string, targets?: string) =>
     call<{ predictions?: { data: number[]; shape: number[] }; accuracy?: number }>(

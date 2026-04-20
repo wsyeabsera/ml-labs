@@ -20,6 +20,8 @@ export const schema = {
   run_id: z.number().int().optional().describe("Resume a cancelled run from its checkpoint"),
   auto_register: z.boolean().default(true).describe("Auto-register as active model on completion"),
   class_weights: z.enum(["balanced"]).optional().describe("Oversample minority classes so every class contributes equally to training. Classification only."),
+  weight_decay: z.number().nonnegative().optional().describe("L2 weight decay coefficient (default: 0). Typical values: 1e-4 .. 1e-2. Helps combat overfitting."),
+  early_stop_patience: z.number().int().positive().optional().describe("Early-stopping patience in epochs. If set, training stops when loss has not improved for this many consecutive epochs."),
 }
 
 export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
@@ -49,6 +51,8 @@ export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
   const hyperparams: TrainHyperparams = {
     lr: args.lr ?? config?.defaultHyperparams?.lr ?? 0.005,
     epochs: args.epochs ?? config?.defaultHyperparams?.epochs ?? 500,
+    ...(args.weight_decay !== undefined ? { weightDecay: args.weight_decay } : {}),
+    ...(args.early_stop_patience !== undefined ? { earlyStopPatience: args.early_stop_patience } : {}),
   }
 
   const headArchFn = config?.headArchitecture ?? ((k: number, d: number) => [d, Math.max(d, 32), k])
