@@ -44,7 +44,9 @@ export async function update() {
     process.exit(1)
   }
 
-  // Rebuild rs-tensor binary (incremental after first build)
+  // Rebuild rs-tensor binary (incremental after first build).
+  // v0.6.0+ adds new train_mlp parameters (weight_decay, early_stop_patience) that
+  // older binaries reject — so the rebuild is load-bearing.
   if (existsSync(RS_TENSOR_DIR)) {
     const cargoCheck = Bun.spawnSync(["cargo", "--version"], { stderr: "ignore", stdout: "ignore" })
     if (cargoCheck.exitCode === 0) {
@@ -55,12 +57,15 @@ export async function update() {
         stderr: "inherit",
       })
       if (cargoBuild.exitCode !== 0) {
-        console.warn("Warning: rs-tensor build failed — neuron will fall back to RS_TENSOR_MCP_URL if set.")
-      } else {
-        console.log("rs-tensor built.")
+        console.error("rs-tensor build failed — aborting update to avoid a half-applied upgrade.")
+        console.error("Fix the Rust build (see output above) and re-run `ml-labs update`.")
+        process.exit(1)
       }
+      console.log("rs-tensor built.")
     } else {
-      console.warn("Warning: cargo not found — skipping rs-tensor build. Install Rust: https://rustup.rs")
+      console.warn("Warning: cargo not found — skipping rs-tensor rebuild.")
+      console.warn("v0.6.0 added new train_mlp args; without a rebuilt binary, auto_train may fail.")
+      console.warn("Install Rust via https://rustup.rs, or set RS_TENSOR_MCP_URL to point at a v0.6.0+ remote.")
     }
   }
 
