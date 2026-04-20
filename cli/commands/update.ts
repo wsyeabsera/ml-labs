@@ -1,6 +1,6 @@
 import { join } from "node:path"
 import { homedir } from "node:os"
-import { existsSync } from "node:fs"
+import { existsSync, rmSync } from "node:fs"
 
 const ML_LABS_DIR = join(homedir(), ".ml-labs")
 const RS_TENSOR_DIR = join(ML_LABS_DIR, "rs-tensor")
@@ -62,6 +62,13 @@ export async function update() {
     } else {
       console.warn("Warning: cargo not found — skipping rs-tensor build. Install Rust: https://rustup.rs")
     }
+  }
+
+  // Invalidate dashboard dist so it rebuilds on next `ml-labs dashboard`
+  const dashDist = join(ML_LABS_DIR, "dashboard", "dist")
+  if (existsSync(dashDist)) {
+    rmSync(dashDist, { recursive: true, force: true })
+    console.log("Dashboard cache cleared — will rebuild on next launch.")
   }
 
   console.log("\nML-Labs updated.")
