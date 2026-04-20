@@ -1,0 +1,5 @@
+target/
+model-files/
+mcp_stderr.log
+sdk/typescript/node_modules/
+sdk/typescript/dist/
