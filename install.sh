@@ -50,22 +50,16 @@ info "cli/ deps..."
 bun install --cwd "$INSTALL_DIR/cli" --frozen-lockfile 2>&1 | grep -E "^(Saved|installed|error)" | sed 's/^/     /' || true
 ok "cli deps installed"
 
-# ── Build CLI binary ──────────────────────────────────────────────────────────
-heading "Building CLI"
-echo ""
-mkdir -p "$INSTALL_DIR/bin"
-info "Compiling ml-labs binary..."
-bun build --compile "$INSTALL_DIR/cli/index.ts" \
-  --outfile "$INSTALL_DIR/bin/ml-labs" \
-  --target bun 2>&1 | sed 's/^/     /'
-ok "Binary compiled → $INSTALL_DIR/bin/ml-labs"
-
-# ── Link to PATH ──────────────────────────────────────────────────────────────
-heading "Linking to PATH"
+# ── Write shell wrapper ───────────────────────────────────────────────────────
+heading "Installing CLI"
 echo ""
 mkdir -p "$BIN_DIR"
-ln -sf "$INSTALL_DIR/bin/ml-labs" "$BINARY"
-ok "Linked: $BINARY → $INSTALL_DIR/bin/ml-labs"
+cat > "$BINARY" <<'WRAPPER'
+#!/usr/bin/env bash
+exec bun run "$HOME/.ml-labs/cli/index.ts" "$@"
+WRAPPER
+chmod +x "$BINARY"
+ok "Wrapper written → $BINARY"
 
 # ── Ensure ~/.local/bin is in PATH ────────────────────────────────────────────
 SHELL_RC=""

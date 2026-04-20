@@ -31,16 +31,5 @@ export async function update() {
     process.exit(1)
   }
 
-  // Rebuild CLI binary
-  console.log("\nRebuilding CLI binary...")
-  const build = Bun.spawnSync(
-    ["bun", "build", "--compile", "index.ts", "--outfile", join(ML_LABS_DIR, "bin", "ml-labs"), "--target", "bun"],
-    { cwd: join(ML_LABS_DIR, "cli"), stdout: "inherit", stderr: "inherit" },
-  )
-  if (build.exitCode !== 0) {
-    console.error("CLI build failed.")
-    process.exit(1)
-  }
-
   console.log("\nML-Labs updated.")
 }
