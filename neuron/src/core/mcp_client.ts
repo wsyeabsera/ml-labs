@@ -53,7 +53,13 @@ function isConnectionError(err: unknown): boolean {
     m.includes("expect initialize")
 }
 
-export async function call<T = unknown>(tool: string, args: Record<string, unknown>, timeoutMs = 600_000, signal?: AbortSignal): Promise<T> {
+// 30-minute default so long trainings (large N, high epochs, tournament waves) don't get
+// killed mid-loop. Override per-call via the timeoutMs arg or globally via RS_TENSOR_TIMEOUT_MS (ms).
+const DEFAULT_TIMEOUT_MS = process.env.RS_TENSOR_TIMEOUT_MS
+  ? Math.max(60_000, parseInt(process.env.RS_TENSOR_TIMEOUT_MS))
+  : 1_800_000
+
+export async function call<T = unknown>(tool: string, args: Record<string, unknown>, timeoutMs = DEFAULT_TIMEOUT_MS, signal?: AbortSignal): Promise<T> {
   let lastErr: unknown
   for (let attempt = 0; attempt < 2; attempt++) {
     try {

@@ -4,6 +4,13 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v0.6.1 — 2026-04-20
+
+### Fixed
+- **rs-tensor MCP call timeout raised from 10 min → 30 min.** Long trainings (large N, high epochs, or the Tier 3 "still_improving → 2× epochs" refinement) were being killed mid-loop by the MCP client's 600 s ceiling. Default is now 1 800 s (30 min), and a new `RS_TENSOR_TIMEOUT_MS` env var lets you override it for runs that need even longer (minimum 60 s). Applies to every rs-tensor call — `tensor_create`, `train_mlp`, `evaluate_mlp`, `tensor_inspect`.
+
+---
+
 ## v0.6.0 — 2026-04-20
 
 ### Added (auto_train Tier 3 — capability expansion)
