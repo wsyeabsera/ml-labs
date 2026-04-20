@@ -1,7 +1,7 @@
 import { z } from "zod"
 import { getTask } from "../core/db/tasks"
 import { createAutoRun } from "../core/db/auto"
-import { runCoordinator } from "../core/auto/coordinator"
+import { runController } from "../core/auto/controller"
 import { recordEvent } from "../core/db/events"
 
 export const name = "auto_train"
@@ -59,7 +59,7 @@ export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
 
   const taskKind: "classification" | "regression" = task.kind === "regression" ? "regression" : "classification"
 
-  const result = await runCoordinator({
+  const result = await runController({
     task_id: args.task_id,
     task_kind: taskKind,
     auto_run_id: autoRun.id,
@@ -81,6 +81,7 @@ export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
     accuracy: result.accuracy,
     waves_used: result.waves_used,
     verdict: result.verdict,
+    verdict_json: result.verdict_json,
     published_uri: result.published_uri,
     wall_clock_s: result.wall_clock_s,
   }

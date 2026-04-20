@@ -10,7 +10,7 @@ export interface AutoLogEntry {
 export interface AutoRun {
   id: number
   task_id: string
-  status: "running" | "completed" | "failed" | "data_issue" | "budget_exceeded"
+  status: "running" | "completed" | "failed" | "data_issue" | "budget_exceeded" | "no_improvement"
   started_at: string
   finished_at: string | null
   accuracy_target: number | null

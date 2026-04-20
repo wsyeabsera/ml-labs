@@ -29,6 +29,7 @@ export async function runOneConfig(
     (config.lr !== undefined ? `, lr=${config.lr}` : "") +
     (config.epochs !== undefined ? `, epochs=${config.epochs}` : "") +
     (config.head_arch !== undefined ? `, head_arch=${JSON.stringify(config.head_arch)}` : "") +
+    (config.class_weights !== undefined ? `, class_weights="${config.class_weights}"` : "") +
     `, auto_register=false. ` +
     `After training completes, output ONLY a single JSON line: {"run_id":<id>,"accuracy":<val>}`
 

@@ -2,6 +2,7 @@ export interface SweepConfig {
   lr?: number
   epochs?: number
   head_arch?: number[]
+  class_weights?: "balanced"
 }
 
 export interface SearchSpec {

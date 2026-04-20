@@ -4,6 +4,29 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v0.5.0 — 2026-04-20
+
+### Changed (major internal rewrite — public tool signature unchanged)
+- **auto_train Tier 2: Controller + Planner architecture.** The monolithic 40-turn Claude coordinator (`core/auto/coordinator.ts`) is replaced by a deterministic TypeScript state machine (`core/auto/controller.ts`) that owns the budget, wave loop, winner selection, and all DB writes. Claude is now invoked only via a narrow per-wave **planner** (`core/auto/planner.ts`) whose single job is "given these signals, return JSON configs for the next wave."
+  - Deterministic outcomes: two `auto_train` invocations on the same task now produce the same wave-2 grid when signals match.
+  - Diagnosis, promotion, and publish are pure TS — no more prose-driven Claude reasoning about severity buckets.
+  - Training is still parallel (reuses the existing `runSweep()` sub-agent orchestrator).
+
+### Added
+- **Signal aggregator** (`core/auto/signals.ts`): typed `SignalBundle` carrying data health, current-wave run signals (overfit_gap, still_improving, convergence_epoch, per_class_variance, severity), and target metric. Single source of truth for what the planner sees.
+- **Pure-TS refinement rules** (`core/auto/rules.ts`): `refineFromSignals()` implements the Tier 1 rules (still_improving → 2× epochs, overfit_gap > 0.15 → shallower arch + fewer epochs, early convergence → finer lr, critical underfit → wider hidden, high per-class variance → class_weights=balanced). Used as the deterministic fallback when the planner is unavailable.
+- **Claude planner** (`core/auto/planner.ts`): short `query()` call (maxTurns 2) with strict JSON output schema `{configs, rationale, rules_fired}`. On parse failure, falls through to rules.ts. Reads back recent decision_log entries for reflection.
+- **Cross-task memory** (`core/auto/patterns.ts`, `auto_patterns` table): tasks are fingerprinted by `(kind, K, D-bucket, N-bucket, imbalance-bucket)`. Prior winning configs warm-start new runs for similar tasks.
+- **Structured verdict** (`core/auto/verdict.ts`, new `auto_runs.verdict_json` column): `{status, winner: {run_id, metric_value, is_overfit, confidence, config}, attempted, data_issues, next_steps, summary}`. The one-line `verdict` string is kept for backward compat. `auto_train` return value now includes `verdict_json`.
+- **New AutoRun status** `"no_improvement"`: distinct from `"failed"` and `"budget_exceeded"` — coordinator finished cleanly but didn't hit the target.
+- **New events**: `auto_wave_started`, `auto_wave_completed` emit per wave for dashboard live updates.
+- **class_weights threading through sweep**: `SweepConfig` now includes `class_weights`, and `runOneConfig()` forwards it to the `train` tool call.
+
+### Removed
+- `neuron/src/core/auto/coordinator.ts` and `neuron/src/core/auto/prompt.ts` — replaced by controller + planner. The `runCoordinator` export no longer exists; callers should use `runController` from `core/auto/controller.ts`.
+
+---
+
 ## v0.4.2 — 2026-04-20
 
 ### Added

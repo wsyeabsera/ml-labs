@@ -124,3 +124,20 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_auto_runs_task ON auto_runs(task_id, started_at DESC);
 `)
+
+ensureColumns("auto_runs", ["verdict_json TEXT"])
+
+// auto_patterns — cross-task memory: what worked for similar tasks
+db.exec(`
+  CREATE TABLE IF NOT EXISTS auto_patterns (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_fingerprint  TEXT NOT NULL,
+    task_id           TEXT NOT NULL,
+    dataset_shape     TEXT NOT NULL,
+    best_config       TEXT NOT NULL,
+    best_metric       REAL NOT NULL,
+    metric_name       TEXT NOT NULL,
+    created_at        INTEGER NOT NULL DEFAULT (unixepoch())
+  );
+  CREATE INDEX IF NOT EXISTS idx_auto_patterns_fp ON auto_patterns(task_fingerprint, best_metric DESC);
+`)
