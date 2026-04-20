@@ -76,6 +76,23 @@ export async function init(target: string) {
   cpSync(join(claudeSrc, "commands"), join(claudeDest, "commands"), { recursive: true, force: false })
   print_ok(".claude/ (skills + commands)")
 
+  // ── tsconfig.json ────────────────────────────────────────────────────────────
+  const tsconfigPath = join(projectDir, "tsconfig.json")
+  if (!existsSync(tsconfigPath)) {
+    const tsconfig = {
+      compilerOptions: {
+        baseUrl: ".",
+        paths: {
+          "@neuron/mcp/*": [join(ML_LABS_DIR, "neuron", "*")],
+        },
+      },
+    }
+    writeFileSync(tsconfigPath, JSON.stringify(tsconfig, null, 2) + "\n")
+    print_ok("tsconfig.json")
+  } else {
+    print_skip("tsconfig.json")
+  }
+
   // ── data/ ────────────────────────────────────────────────────────────────────
   const dataDir = join(projectDir, "data")
   mkdirSync(dataDir, { recursive: true })
