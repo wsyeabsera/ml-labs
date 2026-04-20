@@ -1,6 +1,7 @@
 import { mkdirSync, existsSync, cpSync, writeFileSync, readFileSync } from "node:fs"
 import { resolve, join, basename } from "node:path"
 import { homedir } from "node:os"
+import { rsTensorUrl } from "../lib/config"
 
 const ML_LABS_DIR = join(homedir(), ".ml-labs")
 
@@ -31,7 +32,7 @@ export async function init(target: string) {
       mcpServers: {
         "rs-tensor": {
           type: "http",
-          url: "http://localhost:3000/mcp",
+          url: rsTensorUrl(),
         },
         neuron: {
           command: "bun",

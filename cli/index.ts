@@ -6,13 +6,14 @@ import { init } from "./commands/init"
 import { update } from "./commands/update"
 import { docs } from "./commands/docs"
 import { status } from "./commands/status"
+import { tui } from "./commands/tui"
+import { config } from "./commands/config"
 
 function getVersion(): string {
   const rootPkg = join(homedir(), ".ml-labs", "package.json")
   if (existsSync(rootPkg)) {
     try { return JSON.parse(readFileSync(rootPkg, "utf-8")).version ?? "0.2.1" } catch {}
   }
-  // fallback: read own package.json (dev mode)
   try {
     const own = join(import.meta.dir, "package.json")
     if (existsSync(own)) return JSON.parse(readFileSync(own, "utf-8")).version ?? "0.2.1"
@@ -28,9 +29,11 @@ USAGE
 
 COMMANDS
   init [project-name]   Scaffold a new ML-Labs project (default: current dir)
+  tui                   Launch the terminal dashboard (Ink TUI)
   update                Pull latest ML-Labs and rebuild
   docs                  Serve the ML-Labs docs site (http://localhost:5273)
   status                Show install info, rs-tensor health, and project state
+  config <sub>          Get/set global config (e.g. rs-tensor-url)
 
 OPTIONS
   -v, --version         Print version and exit
@@ -39,7 +42,9 @@ OPTIONS
 EXAMPLES
   ml-labs init my-classifier
   ml-labs init .                Wire ML-Labs into the current directory
-  ml-labs status                Check rs-tensor + project wiring at a glance
+  ml-labs tui                   Open the Neuron terminal dashboard
+  ml-labs config set rs-tensor-url http://homeserver:3000/mcp
+  ml-labs status
   ml-labs update
   ml-labs docs
 
@@ -75,6 +80,9 @@ switch (command) {
   case "init":
     await init(args[0] ?? ".")
     break
+  case "tui":
+    await tui()
+    break
   case "update":
     await update()
     break
@@ -83,6 +91,9 @@ switch (command) {
     break
   case "status":
     await status()
+    break
+  case "config":
+    config(args)
     break
   default:
     console.error(`Unknown command: ${command}`)
