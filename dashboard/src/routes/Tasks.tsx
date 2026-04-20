@@ -11,6 +11,7 @@ import { api, type ApiRun } from "../lib/api"
 import { PageHeader } from "../components/PageHeader"
 import { StatusDot } from "../components/StatusDot"
 import { Empty } from "../components/Empty"
+import { ActiveRunCard } from "../components/ActiveRunCard"
 import { clsx } from "clsx"
 
 function pct(v: number | null) {
@@ -418,6 +419,13 @@ export function TaskDetail() {
       </div>
 
       {/* Overview tab */}
+      {tab === "overview" && task.activeRunId && task.lastRunStatus === "running" && (
+        <div className="mb-5">
+          <p className="section-label mb-2">Live</p>
+          <ActiveRunCard taskId={taskId} runId={task.activeRunId} />
+        </div>
+      )}
+
       {tab === "overview" && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <div className="card p-4">

@@ -1,16 +1,36 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
+import { join } from "node:path"
+import { homedir } from "node:os"
+import { existsSync } from "node:fs"
 
-const DEFAULT_URL = "https://openings-trivia-thereafter-reed.trycloudflare.com/mcp"
-const MCP_URL = process.env.RS_TENSOR_MCP_URL ?? DEFAULT_URL
+// When RS_TENSOR_MCP_URL is set, fall back to HTTP (remote/debug mode).
+// Otherwise use the locally-built stdio binary.
+const EXPLICIT_URL = process.env.RS_TENSOR_MCP_URL
+const RS_TENSOR_BIN =
+  process.env.RS_TENSOR_BIN ??
+  join(homedir(), ".ml-labs", "rs-tensor", "target", "release", "mcp")
+
+function makeTransport() {
+  if (EXPLICIT_URL) {
+    return new StreamableHTTPClientTransport(new URL(EXPLICIT_URL))
+  }
+  if (!existsSync(RS_TENSOR_BIN)) {
+    throw new Error(
+      `rs-tensor binary not found at ${RS_TENSOR_BIN}. ` +
+      `Run \`ml-labs update\` to build it (or set RS_TENSOR_MCP_URL to use a remote server).`,
+    )
+  }
+  return new StdioClientTransport({ command: RS_TENSOR_BIN, args: [], stderr: "ignore" })
+}
 
 let clientPromise: Promise<Client> | null = null
-let rateLimitUntil = 0
 
 async function getClient(): Promise<Client> {
   if (!clientPromise) {
     clientPromise = (async () => {
-      const transport = new StreamableHTTPClientTransport(new URL(MCP_URL))
+      const transport = makeTransport()
       transport.onclose = () => { clientPromise = null }
       transport.onerror = () => { clientPromise = null }
       const c = new Client({ name: "neuron-mcp", version: "0.1.0" })
@@ -21,45 +41,32 @@ async function getClient(): Promise<Client> {
   return clientPromise
 }
 
-function isRateLimit(err: unknown): boolean {
-  if (!(err instanceof Error)) return false
-  return err.message.includes("429")
-}
-
 function isConnectionError(err: unknown): boolean {
   if (!(err instanceof Error)) return false
   const m = err.message.toLowerCase()
-  return (m.includes("streamable http") && !isRateLimit(err)) ||
+  return m.includes("streamable http") ||
     m.includes("fetch failed") ||
     m.includes("econnrefused") ||
     m.includes("socket") ||
+    m.includes("epipe") ||
+    m.includes("spawn") ||
     m.includes("expect initialize")
 }
 
-export async function call<T = unknown>(tool: string, args: Record<string, unknown>, timeoutMs = 600_000): Promise<T> {
-  const now = Date.now()
-  if (rateLimitUntil > now) {
-    await new Promise<void>((r) => setTimeout(r, rateLimitUntil - now))
-  }
-
+export async function call<T = unknown>(tool: string, args: Record<string, unknown>, timeoutMs = 600_000, signal?: AbortSignal): Promise<T> {
   let lastErr: unknown
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const c = await getClient()
-      const result = await c.callTool({ name: tool, arguments: args }, undefined, { timeout: timeoutMs })
+      const result = await c.callTool({ name: tool, arguments: args }, undefined, { timeout: timeoutMs, signal })
       const content = Array.isArray(result.content) ? result.content[0] : null
       if (!content || content.type !== "text") throw new Error(`Unexpected response from "${tool}"`)
       return JSON.parse(content.text) as T
     } catch (err) {
       lastErr = err
-      if (isRateLimit(err)) {
-        rateLimitUntil = Date.now() + 5000
-        await new Promise<void>((r) => setTimeout(r, 5000))
-        continue
-      }
       if (attempt === 0 && isConnectionError(err)) {
         clientPromise = null
-        await new Promise<void>((r) => setTimeout(r, 1000))
+        await new Promise<void>((r) => setTimeout(r, 500))
         continue
       }
       throw err
@@ -69,6 +76,13 @@ export async function call<T = unknown>(tool: string, args: Record<string, unkno
 }
 
 export function resetClient() { clientPromise = null }
+
+export function clientStatus(): { ok: boolean; mode: "stdio" | "http" | "missing"; connected: boolean } {
+  const connected = clientPromise !== null
+  if (EXPLICIT_URL) return { ok: true, mode: "http", connected }
+  if (existsSync(RS_TENSOR_BIN)) return { ok: true, mode: "stdio", connected }
+  return { ok: false, mode: "missing", connected: false }
+}
 
 // Infer MLP architecture from stored weight shapes (e.g. [D,H1] + [H1,K] → [D,H1,K])
 function inferArch(

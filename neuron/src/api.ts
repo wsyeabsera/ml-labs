@@ -17,7 +17,7 @@ import { getTaskState, resetTaskState } from "./core/state"
 import { startTrainBackground } from "./api/trainBg"
 import { handler as predictFn } from "./tools/predict"
 import { softmax, argmax, applyNorm } from "./core/metrics"
-import { rsTensor } from "./core/mcp_client"
+import { rsTensor, clientStatus } from "./core/mcp_client"
 import { loadConfig } from "./adapter/loader"
 
 // Force DB initialization via schema import
@@ -55,11 +55,13 @@ function err(msg: string, status = 400): Response {
 
 function handleHealth(): Response {
   const tasks = listTasks()
+  const rs = clientStatus()
   return json({
     ok: true,
     version: VERSION,
     dbPath: process.env.NEURON_DB ?? "default",
     taskCount: tasks.length,
+    rsTensor: { ok: rs.ok, mode: rs.mode, connected: rs.connected },
   })
 }
 

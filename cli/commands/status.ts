@@ -2,9 +2,9 @@ import { join } from "node:path"
 import { homedir } from "node:os"
 import { existsSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
-import { rsTensorUrl } from "../lib/config"
 
 const ML_LABS_DIR = join(homedir(), ".ml-labs")
+const RS_TENSOR_BIN = join(ML_LABS_DIR, "rs-tensor", "target", "release", "mcp")
 
 export async function status() {
   // ── Install ──────────────────────────────────────────────────────────────────
@@ -32,29 +32,17 @@ export async function status() {
   console.log(`  install: ${ML_LABS_DIR}`)
   console.log(`  docs:    ${distBuilt ? "built" : "not built — run: ml-labs docs"}`)
 
-  // ── rs-tensor health ─────────────────────────────────────────────────────────
-  const rsUrl = rsTensorUrl()
-  const isRemote = !rsUrl.includes("localhost") && !rsUrl.includes("127.0.0.1")
+  // ── rs-tensor binary ─────────────────────────────────────────────────────────
+  const explicitUrl = process.env.RS_TENSOR_MCP_URL
   process.stdout.write(`\nrs-tensor:  `)
-  try {
-    const res = await fetch(rsUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", method: "ping", id: 1 }),
-      signal: AbortSignal.timeout(2500),
-    })
-    // Any HTTP response means the server is up
-    console.log(`reachable  (${rsUrl})`)
-  } catch {
-    if (isRemote) {
-      console.log(`unreachable  (${rsUrl})`)
-      console.log(`             make sure the home server is up and rs-tensor is running`)
-    } else {
-      console.log(`not running  (${rsUrl})`)
-      console.log(`             start with: cargo run --release  (in rs-tensor repo)`)
-    }
+  if (explicitUrl) {
+    console.log(`remote  (RS_TENSOR_MCP_URL=${explicitUrl})`)
+  } else if (existsSync(RS_TENSOR_BIN)) {
+    console.log(`built  (${RS_TENSOR_BIN})`)
+  } else {
+    console.log(`not built — run: ml-labs update`)
+    console.log(`             (or set RS_TENSOR_MCP_URL to use a remote server)`)
   }
-  console.log(`  configure: ml-labs config set rs-tensor-url <url>`)
 
   // ── current project ──────────────────────────────────────────────────────────
   const mcpPath = resolve(process.cwd(), ".mcp.json")

@@ -62,6 +62,7 @@ export interface ApiHealth {
   version: string
   dbPath: string
   taskCount: number
+  rsTensor?: { ok: boolean; mode: "stdio" | "http" | "missing"; connected: boolean }
 }
 
 export interface ApiPredictResult {

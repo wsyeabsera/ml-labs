@@ -82,11 +82,47 @@ export async function dispatchTool(
 
   const taskId = typeof args.task_id === "string" ? args.task_id : undefined
   const runId = typeof args.run_id === "number" ? args.run_id : undefined
-  recordEvent({ source: "mcp", kind: "tool_call", taskId, runId, payload: { tool: name } })
+  const toolPayload = buildToolPayload(name, args)
+  recordEvent({ source: "mcp", kind: "tool_call", taskId, runId, payload: { tool: name, ...toolPayload } })
 
   const schema = z.object(mod.schema)
   const parsed = schema.parse(args)
   return mod.handler(parsed as Record<string, unknown>, ctx)
+}
+
+function buildToolPayload(name: string, args: Record<string, unknown>): Record<string, unknown> {
+  switch (name) {
+    case "train":
+    case "auto_train":
+      return {
+        ...(args.lr != null ? { lr: args.lr } : {}),
+        ...(args.epochs != null ? { epochs: args.epochs } : {}),
+        ...(args.accuracy_target != null ? { accuracy_target: args.accuracy_target } : {}),
+        ...(args.budget_s != null ? { budget_s: args.budget_s } : {}),
+      }
+    case "run_sweep": {
+      const configs = args.search as { lr?: number[]; epochs?: number[] } | undefined
+      const lrCount = configs?.lr?.length ?? 1
+      const epCount = configs?.epochs?.length ?? 1
+      return { totalConfigs: lrCount * epCount }
+    }
+    case "load_csv":
+    case "load_json":
+    case "load_images":
+      return typeof args.path === "string" ? { path: args.path } : {}
+    case "register_model":
+    case "publish_model":
+      return {
+        ...(args.run_id != null ? { runId: args.run_id } : {}),
+        ...(args.task_id != null ? { taskId: args.task_id } : {}),
+      }
+    case "diagnose":
+    case "evaluate":
+    case "inspect_data":
+      return {}
+    default:
+      return {}
+  }
 }
 
 // Minimal Zod → JSON Schema for primitive types (enough for MCP tool listing)

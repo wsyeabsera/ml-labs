@@ -1,19 +1,20 @@
 import { NavLink } from "react-router-dom"
-import { LayoutDashboard, Database, PlayCircle, BarChart3, Cpu, Zap, SlidersHorizontal, Upload } from "lucide-react"
+import { LayoutDashboard, Database, PlayCircle, BarChart3, Cpu, Zap, SlidersHorizontal, Upload, Activity } from "lucide-react"
 import { clsx } from "clsx"
 import { ThemeToggle } from "./ThemeToggle"
 import { useQuery } from "@tanstack/react-query"
 import { api } from "../lib/api"
-import { ActivityFeedWidget } from "./ActivityFeed"
+import { ActivityFeedWidget, ActiveJobPill } from "./ActivityFeed"
 
 const nav = [
-  { to: "/",        label: "Overview",  icon: LayoutDashboard, end: true },
-  { to: "/tasks",   label: "Tasks",     icon: Database },
-  { to: "/runs",    label: "Runs",      icon: BarChart3 },
-  { to: "/train",   label: "Train",     icon: PlayCircle },
-  { to: "/predict", label: "Predict",   icon: Zap },
-  { to: "/sweep",   label: "Sweep",     icon: SlidersHorizontal },
-  { to: "/upload",  label: "Upload",    icon: Upload },
+  { to: "/",         label: "Overview",  icon: LayoutDashboard, end: true },
+  { to: "/tasks",    label: "Tasks",     icon: Database },
+  { to: "/runs",     label: "Runs",      icon: BarChart3 },
+  { to: "/train",    label: "Train",     icon: PlayCircle },
+  { to: "/predict",  label: "Predict",   icon: Zap },
+  { to: "/sweep",    label: "Sweep",     icon: SlidersHorizontal },
+  { to: "/upload",   label: "Upload",    icon: Upload },
+  { to: "/activity", label: "Activity",  icon: Activity },
 ]
 
 export function Sidebar() {
@@ -53,6 +54,9 @@ export function Sidebar() {
         ))}
       </nav>
 
+      {/* Active job pill */}
+      <ActiveJobPill />
+
       {/* Activity feed */}
       <ActivityFeedWidget />
 
@@ -61,9 +65,12 @@ export function Sidebar() {
         {/* Server status */}
         <div className="space-y-1">
           <p className="section-label">Servers</p>
+          <ServerPill label="neuron" ok={!!health?.ok} />
           <ServerPill
-            label="neuron"
-            ok={!!health?.ok}
+            label="rs-tensor"
+            ok={!!health?.rsTensor?.ok}
+            mode={health?.rsTensor?.mode}
+            connected={health?.rsTensor?.connected}
           />
         </div>
 
@@ -79,16 +86,36 @@ export function Sidebar() {
   )
 }
 
-function ServerPill({ label, ok }: { label: string; ok: boolean }) {
+function ServerPill({
+  label, ok, mode, connected,
+}: { label: string; ok: boolean; mode?: string; connected?: boolean }) {
+  const dotColor = !ok
+    ? "bg-[var(--text-3)]"
+    : connected
+    ? "bg-[var(--success)]"
+    : "bg-[var(--warning)] animate-pulse"
+
+  const statusText = !ok
+    ? (mode === "missing" ? "not built" : "offline")
+    : connected
+    ? "online"
+    : "ready"
+
+  const statusColor = !ok
+    ? "text-[var(--text-3)]"
+    : connected
+    ? "text-[var(--success)]"
+    : "text-[var(--warning)]"
+
   return (
     <div className="flex items-center gap-2 text-xs text-[var(--text-2)]">
-      <span className={clsx(
-        "w-1.5 h-1.5 rounded-full flex-shrink-0",
-        ok ? "bg-[var(--success)]" : "bg-[var(--text-3)]"
-      )} />
+      <span className={clsx("w-1.5 h-1.5 rounded-full flex-shrink-0", dotColor)} />
       <span className="font-mono">{label}</span>
-      <span className={clsx("ml-auto text-2xs font-mono", ok ? "text-[var(--success)]" : "text-[var(--text-3)]")}>
-        {ok ? "online" : "offline"}
+      {mode && mode !== "missing" && (
+        <span className="text-2xs text-[var(--text-3)] font-mono">{mode}</span>
+      )}
+      <span className={clsx("ml-auto text-2xs font-mono", statusColor)}>
+        {statusText}
       </span>
     </div>
   )

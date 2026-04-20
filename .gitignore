@@ -39,3 +39,6 @@ Thumbs.db
 
 # cleanup staging
 _trash/
+
+# rs-tensor Rust build artifacts
+rs-tensor/target/

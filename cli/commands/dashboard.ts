@@ -50,21 +50,20 @@ export async function dashboard() {
 
   if (!(await buildIfNeeded())) process.exit(1)
 
-  // Always kill anything on PORT so a new invocation from a different project
-  // directory always starts fresh with the correct NEURON_DB.
+  // Always kill anything on PORT so a new invocation always starts fresh with the correct NEURON_DB.
   const pids = Bun.spawnSync(["lsof", "-ti", `TCP:${PORT}`, "-sTCP:LISTEN"], { stderr: "ignore" })
   const pidList = new TextDecoder().decode(pids.stdout).trim()
   if (pidList) {
-    console.log("Restarting dashboard server with current project DB…")
-    for (const pid of pidList.split("\n")) {
+    console.log("Stopping existing dashboard server…")
+    for (const pid of pidList.split("\n").filter(Boolean)) {
       Bun.spawnSync(["kill", "-9", pid.trim()], { stderr: "ignore" })
     }
-    // Wait until the port is actually free (up to 3s)
-    for (let i = 0; i < 30; i++) {
-      await Bun.sleep(100)
-      const check = Bun.spawnSync(["lsof", "-ti", `TCP:${PORT}`, "-sTCP:LISTEN"], { stderr: "ignore" })
-      if (!new TextDecoder().decode(check.stdout).trim()) break
-    }
+  }
+  // Always poll until the port is actually free (up to 3s) — guards against lsof misses
+  for (let i = 0; i < 30; i++) {
+    await Bun.sleep(100)
+    const check = Bun.spawnSync(["lsof", "-ti", `TCP:${PORT}`, "-sTCP:LISTEN"], { stderr: "ignore" })
+    if (!new TextDecoder().decode(check.stdout).trim()) break
   }
 
   const serverTs = join(ML_LABS_DIR, "neuron", "src", "api.ts")

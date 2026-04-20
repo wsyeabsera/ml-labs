@@ -5,7 +5,9 @@ ml-labs config <subcommand>
 
 SUBCOMMANDS
   show                     Print current config
-  set rs-tensor-url <url>  Set the rs-tensor MCP server URL
+  set rs-tensor-url <url>  Set a remote rs-tensor URL override (sets RS_TENSOR_MCP_URL)
+                           Normally not needed — ml-labs uses the built-in stdio binary.
+                           Use this to point neuron at a remote rs-tensor server.
 
 EXAMPLES
   ml-labs config show
@@ -17,8 +19,10 @@ export function config(args: string[]) {
 
   if (!sub || sub === "show") {
     const cfg = readConfig()
+    const envOverride = process.env.RS_TENSOR_MCP_URL
     console.log("\nML-Labs config (~/.ml-labs/config.json):\n")
-    console.log(`  rs-tensor-url  ${cfg.rs_tensor_url}`)
+    console.log(`  rs-tensor-url  ${cfg.rs_tensor_url}  (remote override; normally unused)`)
+    if (envOverride) console.log(`  RS_TENSOR_MCP_URL  ${envOverride}  (env var active — overrides local binary)`)
     console.log("")
     return
   }

@@ -25,6 +25,13 @@ if ! command -v bun &>/dev/null; then
   exit 1
 fi
 
+# ── Check cargo ───────────────────────────────────────────────────────────────
+if ! command -v cargo &>/dev/null; then
+  error "Rust toolchain (cargo) is required but not installed."
+  echo "  Install it: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
+  exit 1
+fi
+
 # ── Clone or update ───────────────────────────────────────────────────────────
 heading "ML-Labs installer"
 echo ""
@@ -33,10 +40,11 @@ if [ -d "$INSTALL_DIR/.git" ]; then
   info "Updating existing installation at $INSTALL_DIR..."
   git -C "$INSTALL_DIR" fetch origin 2>&1 | sed 's/^/     /'
   git -C "$INSTALL_DIR" reset --hard origin/main 2>&1 | sed 's/^/     /'
+  git -C "$INSTALL_DIR" submodule update --init --recursive 2>&1 | sed 's/^/     /'
   ok "Repository updated"
 else
   info "Cloning ML-Labs to $INSTALL_DIR..."
-  git clone "$ML_LABS_REPO" "$INSTALL_DIR" 2>&1 | sed 's/^/     /'
+  git clone --recurse-submodules "$ML_LABS_REPO" "$INSTALL_DIR" 2>&1 | sed 's/^/     /'
   ok "Repository cloned"
 fi
 
@@ -55,6 +63,10 @@ info "site/ deps + build..."
 bun install --cwd "$INSTALL_DIR/site" --frozen-lockfile 2>&1 | grep -E "^(Saved|installed|error)" | sed 's/^/     /' || true
 bun --cwd "$INSTALL_DIR/site" run build 2>&1 | grep -E "^(dist|✓|error)" | sed 's/^/     /' || true
 ok "docs built → site/dist/"
+
+info "Building rs-tensor (cargo --release, ~2 min first time)…"
+(cd "$INSTALL_DIR/rs-tensor" && cargo build --release --bin mcp 2>&1 | grep -E "^(error|warning.*unused|Compiling|Finished)" | sed 's/^/     /') || { error "rs-tensor build failed"; exit 1; }
+ok "rs-tensor built → rs-tensor/target/release/mcp"
 
 # ── Write shell wrapper ───────────────────────────────────────────────────────
 heading "Installing CLI"
@@ -90,7 +102,7 @@ echo ""
 echo "  Start a new project:"
 echo -e "    ${cyan}ml-labs init my-project${reset}"
 echo ""
-echo "  Update later:"
+echo "  Update (also rebuilds rs-tensor):"
 echo -e "    ${cyan}ml-labs update${reset}"
 echo ""
 echo "  Open the docs:"

@@ -3,6 +3,7 @@ import { homedir } from "node:os"
 import { existsSync } from "node:fs"
 
 const ML_LABS_DIR = join(homedir(), ".ml-labs")
+const RS_TENSOR_DIR = join(ML_LABS_DIR, "rs-tensor")
 
 export async function update() {
   if (!existsSync(ML_LABS_DIR)) {
@@ -24,6 +25,13 @@ export async function update() {
     process.exit(1)
   }
 
+  // Pull any submodule updates (rs-tensor pin may have moved)
+  Bun.spawnSync(["git", "submodule", "update", "--init", "--recursive"], {
+    cwd: ML_LABS_DIR,
+    stdout: "inherit",
+    stderr: "inherit",
+  })
+
   // Reinstall neuron deps in case packages changed
   console.log("\nReinstalling neuron deps...")
   const install = Bun.spawnSync(["bun", "install", "--frozen-lockfile"], {
@@ -34,6 +42,26 @@ export async function update() {
   if (install.exitCode !== 0) {
     console.error("bun install failed.")
     process.exit(1)
+  }
+
+  // Rebuild rs-tensor binary (incremental after first build)
+  if (existsSync(RS_TENSOR_DIR)) {
+    const cargoCheck = Bun.spawnSync(["cargo", "--version"], { stderr: "ignore", stdout: "ignore" })
+    if (cargoCheck.exitCode === 0) {
+      console.log("\nBuilding rs-tensor...")
+      const cargoBuild = Bun.spawnSync(["cargo", "build", "--release", "--bin", "mcp"], {
+        cwd: RS_TENSOR_DIR,
+        stdout: "inherit",
+        stderr: "inherit",
+      })
+      if (cargoBuild.exitCode !== 0) {
+        console.warn("Warning: rs-tensor build failed — neuron will fall back to RS_TENSOR_MCP_URL if set.")
+      } else {
+        console.log("rs-tensor built.")
+      }
+    } else {
+      console.warn("Warning: cargo not found — skipping rs-tensor build. Install Rust: https://rustup.rs")
+    }
   }
 
   console.log("\nML-Labs updated.")

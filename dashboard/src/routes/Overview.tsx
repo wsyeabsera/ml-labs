@@ -1,12 +1,13 @@
 import { useQuery } from "@tanstack/react-query"
 import { Link } from "react-router-dom"
 import { motion } from "framer-motion"
-import { Database, ArrowRight, BrainCircuit, FlaskConical, TrendingUp } from "lucide-react"
+import { Database, ArrowRight, BrainCircuit, FlaskConical, TrendingUp, Activity } from "lucide-react"
 import { api, type ApiTask } from "../lib/api"
 import { PageHeader } from "../components/PageHeader"
 import { StatusDot } from "../components/StatusDot"
 import { Empty } from "../components/Empty"
 import { ConfigCard } from "../components/ConfigCard"
+import { ActiveRunCard } from "../components/ActiveRunCard"
 import { clsx } from "clsx"
 
 function pct(v: number | null) {
@@ -102,25 +103,46 @@ function Metric({ label, value, accent }: { label: string; value: string; accent
 
 function SummaryBar({ tasks }: { tasks: ApiTask[] }) {
   const totalSamples = tasks.reduce((s, t) => s + t.sampleCount, 0)
-  const totalRuns = tasks.reduce((s, t) => s + t.runCount, 0)
+  const activeRuns = tasks.filter((t) => t.activeRunId && t.lastRunStatus === "running").length
+  const bestAccuracy = tasks.reduce<number | null>((best, t) => {
+    if (t.accuracy == null) return best
+    return best == null || t.accuracy > best ? t.accuracy : best
+  }, null)
 
   return (
-    <div className="grid grid-cols-3 gap-3 mb-8">
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
       {[
         { icon: Database,     label: "Tasks",          value: String(tasks.length) },
         { icon: FlaskConical, label: "Total samples",   value: totalSamples.toLocaleString() },
-        { icon: TrendingUp,   label: "Runs completed", value: String(totalRuns) },
-      ].map(({ icon: Icon, label, value }) => (
+        { icon: TrendingUp,   label: "Best accuracy",  value: bestAccuracy != null ? `${(bestAccuracy * 100).toFixed(1)}%` : "—", accent: bestAccuracy != null && bestAccuracy >= 0.9 },
+        { icon: Activity,     label: "Active runs",    value: String(activeRuns), accent: activeRuns > 0 },
+      ].map(({ icon: Icon, label, value, accent }) => (
         <div key={label} className="card p-4 flex items-center gap-3">
           <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-[var(--accent-dim)] flex-shrink-0">
             <Icon size={15} className="text-[var(--accent-text)]" />
           </div>
           <div>
             <p className="text-2xs text-[var(--text-3)]">{label}</p>
-            <p className="stat-num text-base text-[var(--text-1)]">{value}</p>
+            <p className={`stat-num text-base ${accent ? "text-[var(--success)]" : "text-[var(--text-1)]"}`}>{value}</p>
           </div>
         </div>
       ))}
+    </div>
+  )
+}
+
+function LiveStrip({ tasks }: { tasks: ApiTask[] }) {
+  const activeTasks = tasks.filter((t) => t.activeRunId && t.lastRunStatus === "running")
+  if (activeTasks.length === 0) return null
+
+  return (
+    <div className="mb-6">
+      <p className="section-label mb-2">Live</p>
+      <div className="space-y-2">
+        {activeTasks.map((t) => (
+          <ActiveRunCard key={t.id} taskId={t.id} runId={t.activeRunId!} compact />
+        ))}
+      </div>
     </div>
   )
 }
@@ -159,7 +181,12 @@ export function Overview() {
         </div>
       )}
 
-      {!isLoading && !error && tasks.length > 0 && <SummaryBar tasks={tasks} />}
+      {!isLoading && !error && tasks.length > 0 && (
+        <>
+          <SummaryBar tasks={tasks} />
+          <LiveStrip tasks={tasks} />
+        </>
+      )}
 
       {!isLoading && !error && tasks.length === 0 && (
         <Empty

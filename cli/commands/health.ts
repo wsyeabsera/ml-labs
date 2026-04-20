@@ -2,9 +2,10 @@ import { join } from "node:path"
 import { homedir } from "node:os"
 import { existsSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
-import { rsTensorUrl } from "../lib/config"
 
 const ML_LABS_DIR = join(homedir(), ".ml-labs")
+const RS_TENSOR_BIN =
+  process.env.RS_TENSOR_BIN ?? join(ML_LABS_DIR, "rs-tensor", "target", "release", "mcp")
 
 // ── output helpers ─────────────────────────────────────────────────────────────
 
@@ -151,57 +152,76 @@ function stdioKill(session: StdioMcpSession) {
 // ── rs-tensor checks ──────────────────────────────────────────────────────────
 
 async function checkRsTensor(): Promise<boolean> {
-  const url = rsTensorUrl()
-  const isRemote = !url.includes("localhost") && !url.includes("127.0.0.1")
-  section(`rs-tensor  (${url})`)
+  const explicitUrl = process.env.RS_TENSOR_MCP_URL
+  const useHttp = !!explicitUrl
 
-  // 1. Reachability
-  try {
-    await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" },
-      body: "{}", signal: AbortSignal.timeout(3000) })
-    ok("reachable")
-  } catch {
-    fail(`unreachable — ${isRemote ? "check that the home server is up" : "start with: cargo run --release"}`)
-    return false
+  if (useHttp) {
+    // Remote/debug mode: HTTP transport
+    section(`rs-tensor  (HTTP: ${explicitUrl})`)
+    let session: McpSession
+    try {
+      await fetch(explicitUrl, { method: "POST", headers: { "Content-Type": "application/json" },
+        body: "{}", signal: AbortSignal.timeout(3000) })
+      ok("reachable")
+      session = await mcpHttpInit(explicitUrl)
+    } catch (e) {
+      fail(`unreachable or handshake failed: ${e instanceof Error ? e.message : String(e)}`)
+      return false
+    }
+    try {
+      const result = await mcpHttpCall(session, "tools/list", {}, 2) as { tools: unknown[] }
+      ok(`tools/list  →  ${result.tools?.length ?? 0} tools`)
+    } catch (e) {
+      fail(`tools/list: ${e instanceof Error ? e.message : String(e)}`)
+      return false
+    }
+    return true
   }
 
-  // 2. MCP handshake
-  let session: McpSession
+  // Default: stdio binary
+  section(`rs-tensor  (stdio: ${RS_TENSOR_BIN})`)
+
+  if (!existsSync(RS_TENSOR_BIN)) {
+    fail(`binary not found — run: ml-labs update`)
+    return false
+  }
+  ok("binary found")
+
+  // Spawn + MCP handshake
+  let session: StdioMcpSession
   try {
-    session = await mcpHttpInit(url)
+    process.stdout.write("  …  starting binary\r")
+    session = await mcpStdioInit([RS_TENSOR_BIN], ML_LABS_DIR, {})
   } catch (e) {
-    fail(`MCP handshake failed: ${e instanceof Error ? e.message : String(e)}`)
+    fail(`binary failed to start: ${e instanceof Error ? e.message : String(e)}`)
     return false
   }
 
-  // 3. tools/list
-  let toolCount = 0
+  // tools/list
+  let pass = true
   try {
-    const result = await mcpHttpCall(session, "tools/list", {}, 2) as { tools: unknown[] }
-    toolCount = result.tools?.length ?? 0
-    ok(`tools/list  →  ${toolCount} tools`)
+    const result = await stdioCall(session, "tools/list", {}, 2) as { tools: unknown[] }
+    const count = result.tools?.length ?? 0
+    ok(`tools/list  →  ${count} tools`)
   } catch (e) {
-    fail(`tools/list failed: ${e instanceof Error ? e.message : String(e)}`)
-    return false
+    fail(`tools/list: ${e instanceof Error ? e.message : String(e)}`)
+    pass = false
   }
 
-  // 4. Lightweight tool call — create a 1x1 tensor
+  // Lightweight tool call — create a 1x1 tensor
   try {
-    const result = await mcpHttpCall(session, "tools/call", {
+    const result = await stdioCall(session, "tools/call", {
       name: "tensor_create",
       arguments: { name: "health_check_tensor", data: [1.0], shape: [1, 1] },
     }, 3) as { content?: Array<{ text?: string }> }
     const text = result.content?.[0]?.text ?? ""
-    if (text.includes("health_check_tensor") || text.includes("shape") || text.includes("[1, 1]") || text.includes("1x1") || text.includes("created")) {
-      ok("tensor_create  →  [1, 1] tensor created")
-    } else {
-      ok(`tensor_create  →  responded`)
-    }
+    ok(`tensor_create  →  ${text.length > 0 ? "responded" : "ok"}`)
   } catch (e) {
     warn(`tensor_create: ${e instanceof Error ? e.message : String(e)}`)
   }
 
-  return true
+  stdioKill(session)
+  return pass
 }
 
 // ── neuron checks ─────────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Link } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
 import { motion } from "framer-motion"
@@ -8,6 +8,15 @@ import { PageHeader } from "../components/PageHeader"
 import { StatusDot } from "../components/StatusDot"
 import { Empty } from "../components/Empty"
 import { clsx } from "clsx"
+
+function LiveElapsed({ startedAt }: { startedAt: number }) {
+  const [elapsed, setElapsed] = useState(() => Math.floor(Date.now() / 1000 - startedAt))
+  useEffect(() => {
+    const id = setInterval(() => setElapsed(Math.floor(Date.now() / 1000 - startedAt)), 1000)
+    return () => clearInterval(id)
+  }, [startedAt])
+  return <span>{elapsed}s</span>
+}
 
 function pct(v: number | null) {
   return v != null ? `${(v * 100).toFixed(1)}%` : "—"
@@ -117,15 +126,26 @@ export function RunsAll() {
                     </div>
                   </td>
                   <td className="px-4 py-2.5">
-                    <span className={clsx(
-                      "stat-num text-xs",
-                      r.accuracy != null && r.accuracy >= 0.9 ? "text-[var(--success)]" : "text-[var(--text-1)]"
-                    )}>
-                      {r.accuracy != null ? pct(r.accuracy) : "—"}
-                    </span>
+                    {r.status === "running" ? (
+                      <span className="inline-flex items-center gap-1 text-xs text-[var(--text-3)]">
+                        <span className="w-1 h-1 rounded-full bg-[var(--accent)] animate-pulse" />
+                        training…
+                      </span>
+                    ) : (
+                      <span className={clsx(
+                        "stat-num text-xs",
+                        r.accuracy != null && r.accuracy >= 0.9 ? "text-[var(--success)]" : "text-[var(--text-1)]"
+                      )}>
+                        {r.accuracy != null ? pct(r.accuracy) : "—"}
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-2.5 stat-num text-xs text-[var(--text-2)]">
-                    {r.durationS != null ? `${r.durationS}s` : "—"}
+                    {r.durationS != null
+                      ? `${r.durationS}s`
+                      : r.status === "running" && r.startedAt
+                      ? <LiveElapsed startedAt={r.startedAt} />
+                      : "—"}
                   </td>
                   <td className="px-4 py-2.5 font-mono text-xs text-[var(--text-3)]">
                     {(r.hyperparams as { lr?: number; epochs?: number }).lr ?? "—"} / {(r.hyperparams as { lr?: number; epochs?: number }).epochs ?? "—"}

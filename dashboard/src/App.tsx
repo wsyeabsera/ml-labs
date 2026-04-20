@@ -12,6 +12,7 @@ import { CompareRuns } from "./routes/CompareRuns"
 import { Predict } from "./routes/Predict"
 import { Sweep } from "./routes/Sweep"
 import { Upload } from "./routes/Upload"
+import { Activity } from "./routes/Activity"
 
 const qc = new QueryClient({
   defaultOptions: {
@@ -39,6 +40,7 @@ export function App() {
                 <Route path="/predict"                        element={<Predict />} />
                 <Route path="/sweep"                          element={<Sweep />} />
                 <Route path="/upload"                         element={<Upload />} />
+                <Route path="/activity"                       element={<Activity />} />
               </Routes>
             </div>
           </main>

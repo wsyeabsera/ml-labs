@@ -1,6 +1,7 @@
 import { z } from "zod"
 import { getRun } from "../core/db/runs"
 import { registerModel, getRegisteredModel } from "../core/db/models"
+import { recordEvent } from "../core/db/events"
 
 export const name = "register_model"
 export const description = "Promote a completed training run to be the active model for its task."
@@ -18,6 +19,7 @@ export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
 
   const previous = getRegisteredModel(args.task_id)
   registerModel(args.task_id, args.run_id)
+  recordEvent({ source: "mcp", kind: "model_registered", taskId: args.task_id, runId: args.run_id, payload: { accuracy: run.accuracy, previousRunId: previous?.runId ?? null } })
 
   return {
     ok: true,

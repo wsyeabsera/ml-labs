@@ -2,6 +2,7 @@ import { z } from "zod"
 import { getTask } from "../core/db/tasks"
 import { createAutoRun } from "../core/db/auto"
 import { runCoordinator } from "../core/auto/coordinator"
+import { recordEvent } from "../core/db/events"
 
 export const name = "auto_train"
 export const description =
@@ -54,6 +55,8 @@ export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
     max_waves: args.max_waves,
   })
 
+  recordEvent({ source: "mcp", kind: "auto_started", taskId: args.task_id, payload: { autoRunId: autoRun.id, accuracyTarget: args.accuracy_target, budgetS: args.budget_s } })
+
   const result = await runCoordinator({
     task_id: args.task_id,
     auto_run_id: autoRun.id,
@@ -64,6 +67,8 @@ export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
     publish_name: args.publish_name,
     publish_version: args.publish_version ?? new Date().toISOString().slice(0, 10),
   })
+
+  recordEvent({ source: "mcp", kind: "auto_completed", taskId: args.task_id, payload: { autoRunId: autoRun.id, status: result.status, runId: result.run_id, accuracy: result.accuracy, wallClockS: result.wall_clock_s } })
 
   return {
     ok: result.status === "completed",

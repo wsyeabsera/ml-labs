@@ -48,7 +48,7 @@ export async function runOneConfig(
         tools: [],
         allowedTools: ["mcp__neuron__train"],
         disallowedTools: ["Bash", "Read", "Edit", "Write", "Glob", "Grep"],
-        maxTurns: 8,
+        maxTurns: 20,
         persistSession: false,
         mcpServers: {
           neuron: {

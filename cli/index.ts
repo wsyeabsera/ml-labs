@@ -4,6 +4,7 @@ import { homedir } from "node:os"
 import { existsSync, readFileSync } from "node:fs"
 import { init } from "./commands/init"
 import { update } from "./commands/update"
+import { build } from "./commands/build"
 import { docs } from "./commands/docs"
 import { status } from "./commands/status"
 import { tui } from "./commands/tui"
@@ -33,13 +34,14 @@ USAGE
 COMMANDS
   init [project-name]   Scaffold a new ML-Labs project (default: current dir)
   tui                   Launch the terminal dashboard (Ink TUI)
-  update                Pull latest ML-Labs and rebuild
+  update                Pull latest ML-Labs and rebuild (including rs-tensor)
+  build                 Rebuild the rs-tensor binary (cargo --release)
   docs                  Serve the ML-Labs docs site (http://localhost:5273)
-  status                Show install info, rs-tensor health, and project state
+  status                Show install info, rs-tensor binary state, and project state
   dashboard             Launch the web dashboard (http://localhost:2626)
   reset <task_id>       Clear data for a task (--delete to remove task entirely)
   health                Run sanity checks on both MCP servers
-  config <sub>          Get/set global config (e.g. rs-tensor-url)
+  config <sub>          Get/set global config
 
 OPTIONS
   -v, --version         Print version and exit
@@ -51,7 +53,7 @@ EXAMPLES
   ml-labs reset iris            Clear samples/runs/weights for task "iris"
   ml-labs reset iris --delete   Remove the iris task entirely
   ml-labs tui                   Open the Neuron terminal dashboard
-  ml-labs config set rs-tensor-url http://homeserver:3000/mcp
+  ml-labs build                 Rebuild rs-tensor binary after editing Rust source
   ml-labs health                Run full MCP health check
   ml-labs status
   ml-labs update
@@ -94,6 +96,9 @@ switch (command) {
     break
   case "update":
     await update()
+    break
+  case "build":
+    await build()
     break
   case "docs":
     await docs()

@@ -4,7 +4,7 @@ import {
   createRun, updateRunStatus, finalizeRun,
   updateRunProgress, clearRunProgressDb,
 } from "../core/db/runs"
-import { registerModel } from "../core/db/models"
+import { registerModel, getRegisteredModel } from "../core/db/models"
 import { recordEvent } from "../core/db/events"
 import {
   setActiveRun, clearActiveRun, setTaskTrained, clearRunProgress,
@@ -55,6 +55,7 @@ export async function startTrainBackground(args: StartTrainArgs): Promise<{ runI
 
   // Fire-and-forget training loop
   let lastProgressTs = 0
+  let lastStage: string | null = null
   ;(async () => {
     try {
       const result = await trainHead({
@@ -73,10 +74,16 @@ export async function startTrainBackground(args: StartTrainArgs): Promise<{ runI
             stage: p.stage, i: p.i, n: p.n,
             message: p.message, lossHistory: [], epochsDone: 0,
           })
+          // Stage transition — unthrottled heartbeat
+          if (p.stage !== lastStage) {
+            lastStage = p.stage
+            recordEvent({ source: "mcp", kind: "run_stage", taskId: args.taskId, runId: run.id, payload: { stage: p.stage, message: p.message } })
+          }
+          // Progress with i/n — throttled to 1/sec
           const now = Date.now()
           if (now - lastProgressTs > 1000) {
             lastProgressTs = now
-            recordEvent({ source: "mcp", kind: "run_progress", taskId: args.taskId, runId: run.id, payload: { stage: p.stage, message: p.message } })
+            recordEvent({ source: "mcp", kind: "run_progress", taskId: args.taskId, runId: run.id, payload: { stage: p.stage, i: p.i, n: p.n, message: p.message } })
           }
         },
       })
@@ -95,8 +102,17 @@ export async function startTrainBackground(args: StartTrainArgs): Promise<{ runI
       })
 
       if (!isRegression) updateTaskLabels(args.taskId, labelNames)
+      const prevModel = getRegisteredModel(args.taskId)
       registerModel(args.taskId, run.id)
-      recordEvent({ source: "mcp", kind: "run_completed", taskId: args.taskId, runId: run.id, payload: { accuracy: result.metrics.accuracy, mae: result.regressionMetrics?.mae } })
+      recordEvent({ source: "mcp", kind: "model_registered", taskId: args.taskId, runId: run.id, payload: { accuracy: result.metrics.accuracy, previousRunId: prevModel?.runId ?? null } })
+      const numClasses = isRegression ? 0 : K
+      recordEvent({ source: "mcp", kind: "run_completed", taskId: args.taskId, runId: run.id, payload: {
+        accuracy: result.metrics.accuracy,
+        mae: result.regressionMetrics?.mae,
+        numClasses,
+        epochsDone: epochs,
+        confusionMatrix: numClasses > 0 && numClasses <= 10 ? result.metrics.confusionMatrix : undefined,
+      } })
       setTaskTrained(args.taskId, {
         labels: labelNames,
         metrics: result.metrics,

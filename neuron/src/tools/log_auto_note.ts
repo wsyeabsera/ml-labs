@@ -1,5 +1,6 @@
 import { z } from "zod"
 import { appendAutoLog, getAutoRun } from "../core/db/auto"
+import { recordEvent } from "../core/db/events"
 
 export const name = "log_auto_note"
 export const description =
@@ -24,5 +25,6 @@ export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
   }
 
   appendAutoLog(args.auto_run_id, entry)
+  recordEvent({ source: "mcp", kind: "auto_note", taskId: autoRun.task_id, payload: { autoRunId: args.auto_run_id, stage: args.stage, note: args.note } })
   return { ok: true, ts: entry.ts, auto_run_id: args.auto_run_id }
 }
