@@ -7,6 +7,16 @@ description: Drive and verify the ML-Labs dashboard in Chrome via chrome-devtool
 
 Use `mcp__chrome-devtools__*` tools to navigate, verify, and operate the ML-Labs dashboard.
 
+## Chrome DevTools MCP — one instance limit
+
+Only **one** chrome-devtools MCP process can hold the CDP connection at a time. If tools fail with a connection error or return no pages, another Claude session (or a stale background process) is likely holding it.
+
+Kill all other instances before using these tools:
+```bash
+pkill -f "mcp-server-puppeteer\|chrome-devtools\|@modelcontextprotocol/server-chrome" 2>/dev/null; sleep 0.5
+```
+Then retry the tool. If the user has other Claude sessions open, they should close or restart those sessions first.
+
 ## Dashboard URLs
 
 - Dev server (Vite):  `http://localhost:5274`
