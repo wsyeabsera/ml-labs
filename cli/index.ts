@@ -14,13 +14,13 @@ import { dashboard } from "./commands/dashboard"
 function getVersion(): string {
   const rootPkg = join(homedir(), ".ml-labs", "package.json")
   if (existsSync(rootPkg)) {
-    try { return JSON.parse(readFileSync(rootPkg, "utf-8")).version ?? "0.2.1" } catch {}
+    try { return JSON.parse(readFileSync(rootPkg, "utf-8")).version ?? "0.3.0" } catch {}
   }
   try {
     const own = join(import.meta.dir, "package.json")
-    if (existsSync(own)) return JSON.parse(readFileSync(own, "utf-8")).version ?? "0.2.1"
+    if (existsSync(own)) return JSON.parse(readFileSync(own, "utf-8")).version ?? "0.3.0"
   } catch {}
-  return "0.2.1"
+  return "0.3.0"
 }
 
 const help = `
