@@ -4,6 +4,13 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v0.6.2 — 2026-04-20
+
+### Changed
+- **rs-tensor MCP call timeout default raised from 30 min → 1 hour.** For the same reasons as v0.6.1 — Tier 3's `still_improving → 2× epochs` refinement on larger datasets regularly pushes into the 30–60 min range. Override via `RS_TENSOR_TIMEOUT_MS` env var.
+
+---
+
 ## v0.6.1 — 2026-04-20
 
 ### Fixed
