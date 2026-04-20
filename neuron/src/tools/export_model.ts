@@ -19,14 +19,21 @@ export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
   const run = model.run
 
   return {
-    neuron_version: "0.1.0",
+    neuron_version: "0.2.0",
     task_id: args.task_id,
     kind: task?.kind ?? "classification",
     labels: task?.labels ?? [],
     feature_shape: task?.featureShape ?? [],
+    feature_names: task?.featureNames ?? [],
+    normalize: task?.normalize ?? false,
     accuracy: run.accuracy,
+    val_accuracy: run.valAccuracy,
     per_class_accuracy: run.perClassAccuracy,
     confusion_matrix: run.confusionMatrix,
+    mae: run.mae,
+    rmse: run.rmse,
+    r2: run.r2,
+    norm_stats: run.normStats,
     hyperparams: run.hyperparams,
     weights: run.weights,
     trained_at: run.finishedAt,

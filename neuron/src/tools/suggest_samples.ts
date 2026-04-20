@@ -35,6 +35,7 @@ export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
 
   const task = getTask(args.task_id)
   if (!task) throw new Error(`Task "${args.task_id}" not found`)
+  if (task.kind === "regression") throw new Error("suggest_samples is for classification tasks only. Use get_training_curves for regression diagnostics.")
 
   const samples = getSamplesByTask(args.task_id)
   if (samples.length === 0) {
