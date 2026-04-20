@@ -9,6 +9,7 @@ import { status } from "./commands/status"
 import { tui } from "./commands/tui"
 import { config } from "./commands/config"
 import { health } from "./commands/health"
+import { dashboard } from "./commands/dashboard"
 
 function getVersion(): string {
   const rootPkg = join(homedir(), ".ml-labs", "package.json")
@@ -34,6 +35,7 @@ COMMANDS
   update                Pull latest ML-Labs and rebuild
   docs                  Serve the ML-Labs docs site (http://localhost:5273)
   status                Show install info, rs-tensor health, and project state
+  dashboard             Launch the web dashboard (http://localhost:2626)
   health                Run sanity checks on both MCP servers
   config <sub>          Get/set global config (e.g. rs-tensor-url)
 
@@ -94,6 +96,9 @@ switch (command) {
     break
   case "status":
     await status()
+    break
+  case "dashboard":
+    await dashboard()
     break
   case "health":
     await health()
