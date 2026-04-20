@@ -1,8 +1,8 @@
 import { useState } from "react"
 import { useParams, Link, useNavigate } from "react-router-dom"
-import { useQuery } from "@tanstack/react-query"
-import { motion } from "framer-motion"
-import { Database, AlertTriangle, ArrowRight, GitCompare } from "lucide-react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { motion, AnimatePresence } from "framer-motion"
+import { Database, AlertTriangle, ArrowRight, GitCompare, Trash2, RotateCcw } from "lucide-react"
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
   CartesianGrid, ReferenceLine,
@@ -224,6 +224,97 @@ function DatasetTab({
   )
 }
 
+// ── Reset dialog ──────────────────────────────────────────────────────────────
+
+function ResetDialog({ taskId, onClose }: { taskId: string; onClose: () => void }) {
+  const [mode, setMode] = useState<"reset" | "delete">("reset")
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const navigate = useNavigate()
+  const qc = useQueryClient()
+
+  async function confirm() {
+    setBusy(true)
+    setError(null)
+    try {
+      const result = await api.resetTask(taskId, mode)
+      qc.invalidateQueries({ queryKey: ["tasks"] })
+      qc.invalidateQueries({ queryKey: ["task", taskId] })
+      qc.invalidateQueries({ queryKey: ["runs", taskId] })
+      qc.invalidateQueries({ queryKey: ["allRuns"] })
+      if (result.deleted) { navigate("/") } else { onClose() }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.96 }}
+        transition={{ duration: 0.15 }}
+        className="card-elevated w-[420px] p-5 shadow-2xl border border-[var(--border)]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-2.5 mb-4">
+          <div className="w-8 h-8 rounded-lg bg-[var(--danger-dim)] flex items-center justify-center flex-shrink-0">
+            <AlertTriangle size={15} className="text-[var(--danger)]" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-[var(--text-1)]">Reset task</p>
+            <p className="text-xs text-[var(--text-3)] font-mono">{taskId}</p>
+          </div>
+        </div>
+
+        <div className="space-y-2 mb-4">
+          {([
+            { value: "reset",  icon: RotateCcw, label: "Clear data",   desc: "Wipe all samples, runs, and model weights. Keep the task ID so you can re-upload data." },
+            { value: "delete", icon: Trash2,    label: "Delete task",  desc: "Remove everything including the task definition. Cannot be undone." },
+          ] as const).map(({ value, icon: Icon, label, desc }) => (
+            <button
+              key={value}
+              onClick={() => setMode(value)}
+              className={clsx(
+                "w-full text-left p-3 rounded-lg border transition-colors",
+                mode === value
+                  ? "border-[var(--danger)] bg-[var(--danger-dim)]"
+                  : "border-[var(--border)] hover:border-[var(--border-subtle)] hover:bg-[var(--surface-2)]"
+              )}
+            >
+              <div className="flex items-center gap-2 mb-0.5">
+                <Icon size={12} className={mode === value ? "text-[var(--danger)]" : "text-[var(--text-3)]"} />
+                <span className={clsx("text-xs font-medium", mode === value ? "text-[var(--danger)]" : "text-[var(--text-1)]")}>{label}</span>
+              </div>
+              <p className="text-2xs text-[var(--text-3)] ml-[20px]">{desc}</p>
+            </button>
+          ))}
+        </div>
+
+        {error && <p className="text-xs text-[var(--danger)] mb-3">{error}</p>}
+
+        <div className="flex gap-2 justify-end">
+          <button onClick={onClose} className="px-3 py-1.5 text-xs text-[var(--text-2)] hover:text-[var(--text-1)] transition-colors">
+            Cancel
+          </button>
+          <button
+            onClick={confirm}
+            disabled={busy}
+            className="px-3 py-1.5 text-xs font-medium rounded-md bg-[var(--danger-dim)] text-[var(--danger)] border border-[var(--danger)] hover:bg-[var(--danger)] hover:text-white transition-all disabled:opacity-50"
+          >
+            {busy ? "Working…" : mode === "delete" ? "Delete task" : "Clear data"}
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  )
+}
+
 // ── TaskDetail ─────────────────────────────────────────────────────────────────
 
 type Tab = "overview" | "dataset" | "runs"
@@ -233,6 +324,7 @@ export function TaskDetail() {
   const taskId = decodeURIComponent(id ?? "")
   const [tab, setTab] = useState<Tab>("overview")
   const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [showReset, setShowReset] = useState(false)
   const navigate = useNavigate()
 
   function toggleSelect(runId: number) {
@@ -275,7 +367,20 @@ export function TaskDetail() {
       <PageHeader
         title={task.id}
         subtitle={`${task.kind} · ${task.featureShape[0]}D features`}
+        action={
+          <button
+            onClick={() => setShowReset(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[var(--text-3)] border border-[var(--border)] rounded-md hover:text-[var(--danger)] hover:border-[var(--danger)] hover:bg-[var(--danger-dim)] transition-all"
+          >
+            <RotateCcw size={12} />
+            Reset
+          </button>
+        }
       />
+
+      <AnimatePresence>
+        {showReset && <ResetDialog taskId={taskId} onClose={() => setShowReset(false)} />}
+      </AnimatePresence>
 
       {/* Meta grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">

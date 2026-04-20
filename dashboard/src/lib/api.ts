@@ -225,6 +225,14 @@ export const api = {
     fetch(`${BASE}/tasks/${encodeURIComponent(taskId)}/sweep`, { method: "DELETE" })
       .then((r) => r.json() as Promise<{ ok: boolean }>),
 
+  resetTask: (taskId: string, mode: "reset" | "delete") =>
+    fetch(`${BASE}/tasks/${encodeURIComponent(taskId)}?mode=${mode}`, { method: "DELETE" })
+      .then(async (res) => {
+        const data = await res.json() as { ok?: boolean; deleted?: boolean; error?: string }
+        if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`)
+        return data as { ok: true; deleted: boolean; taskId: string }
+      }),
+
   config: () => get<ApiConfig>("/config"),
 
   events: (opts?: { sinceId?: number; task?: string; limit?: number }) => {

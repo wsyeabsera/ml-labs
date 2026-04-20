@@ -6,13 +6,14 @@
 import { join } from "node:path"
 import { existsSync, appendFileSync, mkdirSync } from "node:fs"
 import { parse as parseCsv } from "csv-parse/sync"
-import { listTasks, getTask, createTask, updateTaskFeatureNames, updateTaskLabels } from "./core/db/tasks"
+import { listTasks, getTask, createTask, updateTaskFeatureNames, updateTaskLabels, deleteTask } from "./core/db/tasks"
 import { listRuns, listAllRuns, getRun } from "./core/db/runs"
 import { sampleCounts, splitCounts, insertSamplesBatch, deleteAllSamples } from "./core/db/samples"
+import { deleteRegisteredModel } from "./core/db/models"
 import { countRuns } from "./core/db/runs"
 import { getRegisteredModel, registerModel } from "./core/db/models"
 import { recordEvent, listEvents } from "./core/db/events"
-import { getTaskState } from "./core/state"
+import { getTaskState, resetTaskState } from "./core/state"
 import { startTrainBackground } from "./api/trainBg"
 import { handler as predictFn } from "./tools/predict"
 import { softmax, argmax, applyNorm } from "./core/metrics"
@@ -20,7 +21,7 @@ import { rsTensor } from "./core/mcp_client"
 import { loadConfig } from "./adapter/loader"
 
 // Force DB initialization via schema import
-import "./core/db/schema"
+import { db } from "./core/db/schema"
 
 const PORT = parseInt(process.env.NEURON_API_PORT ?? "2626")
 const DIST = process.env.DASHBOARD_DIST ?? join(import.meta.dir, "../../dashboard/dist")
@@ -237,6 +238,38 @@ function handleCancelTrain(taskId: string): Response {
   state.abortController.abort(new Error("cancelled"))
   recordEvent({ source: "api", kind: "run_cancelled", taskId, runId: state.activeRunId })
   return json({ ok: true, runId: state.activeRunId })
+}
+
+// ── Reset / delete task ────────────────────────────────────────────────────────
+
+function handleResetTask(taskId: string, req: Request): Response {
+  const task = getTask(taskId)
+  if (!task) return err(`Task "${taskId}" not found`, 404)
+
+  const mode = new URL(req.url).searchParams.get("mode") ?? "reset"
+  if (mode !== "reset" && mode !== "delete") return err(`mode must be "reset" or "delete"`)
+
+  // Abort any active training first
+  const state = getTaskState(taskId)
+  if (state.abortController) state.abortController.abort(new Error("task reset"))
+
+  // Cancel any running sweep
+  const sweep = activeSweeps.get(taskId)
+  if (sweep?.status === "running") { sweep.ac.abort(); activeSweeps.delete(taskId) }
+
+  deleteAllSamples(taskId)
+  deleteRegisteredModel(taskId)
+  db.prepare("DELETE FROM runs WHERE task_id = ?").run(taskId)
+  resetTaskState(taskId)
+
+  if (mode === "delete") {
+    deleteTask(taskId)
+    recordEvent({ source: "api", kind: "task_deleted", taskId, payload: {} })
+    return json({ ok: true, deleted: true, taskId })
+  }
+
+  recordEvent({ source: "api", kind: "task_reset", taskId, payload: {} })
+  return json({ ok: true, deleted: false, taskId })
 }
 
 // ── Dataset upload ─────────────────────────────────────────────────────────────
@@ -827,6 +860,7 @@ Bun.serve({
 
     const taskMatch = path.match(/^\/api\/tasks\/([^/]+)$/)
     if (taskMatch && req.method === "GET")       return handleTask(decodeURIComponent(taskMatch[1]!))
+    if (taskMatch && req.method === "DELETE")    return handleResetTask(decodeURIComponent(taskMatch[1]!), req)
 
     const taskRunsMatch = path.match(/^\/api\/tasks\/([^/]+)\/runs$/)
     if (taskRunsMatch && req.method === "GET")   return handleRuns(decodeURIComponent(taskRunsMatch[1]!))
