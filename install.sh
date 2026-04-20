@@ -50,6 +50,11 @@ info "cli/ deps..."
 bun install --cwd "$INSTALL_DIR/cli" --frozen-lockfile 2>&1 | grep -E "^(Saved|installed|error)" | sed 's/^/     /' || true
 ok "cli deps installed"
 
+info "site/ deps + build..."
+bun install --cwd "$INSTALL_DIR/site" --frozen-lockfile 2>&1 | grep -E "^(Saved|installed|error)" | sed 's/^/     /' || true
+bun --cwd "$INSTALL_DIR/site" run build 2>&1 | grep -E "^(dist|✓|error)" | sed 's/^/     /' || true
+ok "docs built → site/dist/"
+
 # ── Write shell wrapper ───────────────────────────────────────────────────────
 heading "Installing CLI"
 echo ""
