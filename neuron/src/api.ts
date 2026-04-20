@@ -260,6 +260,7 @@ function handleResetTask(taskId: string, req: Request): Response {
   deleteAllSamples(taskId)
   deleteRegisteredModel(taskId)
   db.prepare("DELETE FROM runs WHERE task_id = ?").run(taskId)
+  db.prepare("UPDATE tasks SET labels = NULL, feature_names = NULL WHERE id = ?").run(taskId)
   resetTaskState(taskId)
 
   if (mode === "delete") {
