@@ -4,6 +4,38 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v1.3.0 — 2026-04-21
+
+**Phase 10.5 — Batch prediction observability.** Training runs have been first-class objects for a long time (DB row, background worker, SSE progress, history, detail view). Batch predictions were not — they ran inline on a blocking HTTP handler, capped at 200 rows, with zero persistence and no progress. This release brings batch predict up to parity.
+
+### Added
+
+- **`batch_predict_runs` table** — every batch is now a persisted object with id, task_id, run_id (model used), total, processed, correct, accuracy, status, started_at, finished_at, latency_ms_avg, errors[], has_labels flag, label_column.
+- **Background worker** (`api/batchPredictBg.ts`) — the POST handler no longer blocks. It creates the batch row, returns `{ok, batchId, total, truncated}` immediately, and an async worker iterates rows in the background.
+- **Individual prediction logging** — each row the batch processes is now also written to the existing `predictions` table (with `model_uri = neuron://local/run/<id>#batch/<batchId>`), so batch traffic feeds drift detection and the prediction audit log the same way single-shot predicts do.
+- **Progress events** — `batch_predict_started`, `batch_predict_progress` (every 50 rows), `batch_predict_completed`, `batch_predict_failed`. Payloads include processed / total / accuracy / latency / throughput.
+- **MAX_ROWS raised** from 200 → 5000 (safe now that we're off the HTTP thread).
+- **New endpoints**:
+  - `GET /api/tasks/:id/batch_predict` — list recent batches for a task (newest first).
+  - `GET /api/batch_predict/:id` — single-batch detail.
+- **Live dashboard card** — `Predict.tsx` BatchPredict panel now shows a streaming `BatchPredictLiveCard` instead of a blocking spinner: progress bar, rows processed / total, running accuracy (when labels present), throughput (rows/s), average latency, ETA, warnings.
+- **BatchPredictHistory on TaskDetail** — new table listing recent batches per task with status, rows, accuracy, latency, duration, age. Polls fast when a batch is running, slow otherwise.
+- **ActivityFeed** — icons, colors, labels, query invalidation, and live-only toasts for the 4 new event kinds.
+
+### Non-changes
+
+- No training-path changes — bench Δ=+0.000 on all metrics.
+- No rs-tensor rebuild.
+- MCP `batch_predict` tool surface unchanged.
+
+### Upgrade
+
+```bash
+ml-labs update
+```
+
+---
+
 ## v1.2.0 — 2026-04-21
 
 **Phase 10A — surface the reasoning we already produce.** The coordinator / rules engine / diagnoser were always generating *why* signals at every decision point, but by the time they reached the dashboard they'd been compressed into one-liners like `"B1:overfit→shorter + shallower"`. You saw *what* happened, not *why*. This release plumbs the reasoning through as structured data and renders it in a learnable UI.

@@ -168,6 +168,27 @@ export function ActivityFeedProvider({ children }: { children: React.ReactNode }
     if (ev.kind === "sweep_wave_started" || ev.kind === "sweep_wave_completed") {
       if (ev.taskId) qc.invalidateQueries({ queryKey: ["sweep", ev.taskId] })
     }
+    if (ev.kind === "batch_predict_started" || ev.kind === "batch_predict_progress" ||
+        ev.kind === "batch_predict_completed" || ev.kind === "batch_predict_failed") {
+      const p = ev.payload as { batchId?: number }
+      if (p.batchId != null) qc.invalidateQueries({ queryKey: ["batch-predict-run", p.batchId] })
+      if (ev.taskId) qc.invalidateQueries({ queryKey: ["batch-predict-runs", ev.taskId] })
+
+      if (ev.kind === "batch_predict_completed") {
+        const pp = ev.payload as { accuracy?: number | null; processed?: number }
+        const accPart = pp.accuracy != null ? ` — ${(pp.accuracy * 100).toFixed(1)}% accuracy` : ""
+        toastIfLive({
+          kind: "success",
+          message: `Batch #${p.batchId} done${pp.processed != null ? ` (${pp.processed.toLocaleString()} rows)` : ""}${accPart}`,
+        })
+      }
+      if (ev.kind === "batch_predict_failed") {
+        toastIfLive({
+          kind: "danger",
+          message: `Batch #${p.batchId} failed`,
+        })
+      }
+    }
   }, [qc, pushToast])
 
   useEffect(() => {
@@ -218,6 +239,8 @@ export function ActivityFeedProvider({ children }: { children: React.ReactNode }
         "auto_started", "auto_note", "auto_completed",
         "auto_collect_start", "auto_collect_added",
         "calibrated", "drift_detected",
+        "batch_predict_started", "batch_predict_progress",
+        "batch_predict_completed", "batch_predict_failed",
         "request", "response", "config_reload",
         "task_reset", "task_deleted",
       ]) {
@@ -268,6 +291,10 @@ const KIND_ICON: Record<string, React.ReactNode> = {
   auto_collect_added: <Database size={10} />,
   calibrated:       <Thermometer size={10} />,
   drift_detected:   <TrendingUp size={10} />,
+  batch_predict_started:   <Cpu size={10} />,
+  batch_predict_progress:  <Cpu size={10} />,
+  batch_predict_completed: <CheckCircle2 size={10} />,
+  batch_predict_failed:    <AlertCircle size={10} />,
   model_registered: <CheckCircle2 size={10} />,
   request:          <Cpu size={10} />,
   response:         <CheckCircle2 size={10} />,
@@ -291,6 +318,8 @@ const KIND_COLOR: Record<string, string> = {
   calibrated:       "text-[var(--info)]",
   drift_detected:   "text-[var(--warning)]",
   sweep_wave_completed: "text-[var(--accent-text)]",
+  batch_predict_completed: "text-[var(--success)]",
+  batch_predict_failed:    "text-[var(--danger)]",
 }
 
 function timeAgo(ts: number): string {
@@ -371,6 +400,23 @@ function eventLabel(ev: ApiEvent): string {
       const best = p.bestAccuracy as number | undefined
       return `wave${w != null ? ` ${w}` : ""} done${best != null ? ` · ${(best * 100).toFixed(1)}%` : ""}`
     }
+    case "batch_predict_started": {
+      const total = p.total as number | undefined
+      return `batch #${p.batchId} started${total != null ? ` · ${total.toLocaleString()} rows` : ""}`
+    }
+    case "batch_predict_progress": {
+      const processed = p.processed as number | undefined
+      const total = p.total as number | undefined
+      const acc = p.accuracy as number | null | undefined
+      const accPart = acc != null ? ` · ${(acc * 100).toFixed(1)}%` : ""
+      return `batch #${p.batchId} · ${processed ?? "?"}/${total ?? "?"}${accPart}`
+    }
+    case "batch_predict_completed": {
+      const acc = p.accuracy as number | null | undefined
+      const processed = p.processed as number | undefined
+      return `batch #${p.batchId} done${processed != null ? ` · ${processed.toLocaleString()} rows` : ""}${acc != null ? ` · ${(acc * 100).toFixed(1)}%` : ""}`
+    }
+    case "batch_predict_failed":  return `batch #${p.batchId} failed`
     default:              return ev.kind
   }
 }

@@ -219,6 +219,30 @@ export interface ApiBatchPredictResult {
   correct?: number
 }
 
+export interface ApiBatchPredictStart {
+  ok: boolean
+  batchId: number
+  total: number
+  truncated: boolean
+}
+
+export interface ApiBatchPredictRun {
+  id: number
+  taskId: string
+  runId: number
+  total: number
+  processed: number
+  correct: number | null
+  accuracy: number | null
+  status: "running" | "completed" | "failed"
+  startedAt: number
+  finishedAt: number | null
+  latencyMsAvg: number | null
+  errors: string[]
+  hasLabels: boolean
+  labelColumn: string | null
+}
+
 export interface ApiInspect {
   ok: boolean
   total: number
@@ -471,11 +495,19 @@ export const api = {
       headers: { "Content-Type": "text/plain" },
       body: csv,
     }).then(async (res) => {
-      const data = await res.json() as ApiBatchPredictResult & { error?: string }
+      const data = await res.json() as ApiBatchPredictStart & { error?: string }
       if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`)
-      return data as ApiBatchPredictResult
+      return data as ApiBatchPredictStart
     })
   },
+
+  batchPredictRuns: (taskId: string, limit = 50) =>
+    get<{ ok: boolean; batches: ApiBatchPredictRun[] }>(
+      `/tasks/${encodeURIComponent(taskId)}/batch_predict?limit=${limit}`,
+    ),
+
+  batchPredictRun: (id: number) =>
+    get<{ ok: boolean; batch: ApiBatchPredictRun }>(`/batch_predict/${id}`),
 }
 
 // ── SSE hook helpers ──────────────────────────────────────────────────────────

@@ -17,6 +17,8 @@ import { getRegisteredModel, registerModel } from "./core/db/models"
 import { recordEvent, listEvents } from "./core/db/events"
 import { getTaskState, resetTaskState } from "./core/state"
 import { startTrainBackground } from "./api/trainBg"
+import { startBatchPredictBackground } from "./api/batchPredictBg"
+import { getBatch, listBatches } from "./core/db/batch_predict"
 import { handler as predictFn, runInference as runInferenceForRun } from "./tools/predict"
 import { softmax, argmax, applyNorm } from "./core/metrics"
 import { rsTensor, clientStatus } from "./core/mcp_client"
@@ -27,7 +29,7 @@ import { db } from "./core/db/schema"
 
 const PORT = parseInt(process.env.NEURON_API_PORT ?? "2626")
 const DIST = process.env.DASHBOARD_DIST ?? join(import.meta.dir, "../../dashboard/dist")
-const VERSION = "1.2.0"
+const VERSION = "1.3.0"
 const DB_DIR = (() => {
   const db = process.env.NEURON_DB
   return db ? join(db, "..") : join(import.meta.dir, "../../data")
@@ -850,9 +852,6 @@ function computeAgreement(
 }
 
 async function handleBatchPredict(taskId: string, req: Request): Promise<Response> {
-  const model = getRegisteredModel(taskId)
-  if (!model?.run || (model.run.status !== "completed" && model.run.status !== "imported"))
-    return err(`No trained model for task "${taskId}". Train first.`)
   const task = getTask(taskId)
   if (!task) return err(`Task "${taskId}" not found`, 404)
 
@@ -870,78 +869,32 @@ async function handleBatchPredict(taskId: string, req: Request): Promise<Respons
     return err(`CSV parse error: ${e instanceof Error ? e.message : String(e)}`)
   }
 
-  if (records.length === 0) return json({ ok: true, total: 0, processed: 0, predictions: [], errors: [] })
+  if (records.length === 0) return err("CSV contained no rows")
 
-  const isRegression = task.kind === "regression"
-  const run = model.run
-  const labels = task.labels ?? Object.keys(run.sampleCounts ?? {})
-  const K = isRegression ? 1 : labels.length
-  const mlpName = `neuron_run_${run.id}_mlp`
-  const firstRow = records[0]!
-  const allCols = Object.keys(firstRow)
-  const featureCols = labelCol ? allCols.filter((c) => c !== labelCol) : allCols
-
-  // Ensure model is in memory
   try {
-    const probe = featureCols.map((c) => parseFloat(firstRow[c] ?? "0") || 0)
-    await rsTensor.createTensor("neuron_batch_probe_api", probe, [1, probe.length])
-    await rsTensor.evaluateMlp(mlpName, "neuron_batch_probe_api")
-  } catch {
-    if (!run.weights) return err("Model weights not found. Retrain.")
-    const headArch = (run.hyperparams as { headArch?: number[] }).headArch
-    await rsTensor.restoreMlp(mlpName, run.weights, headArch)
+    const { batchId, total, truncated } = startBatchPredictBackground({
+      taskId,
+      records,
+      labelColumn: labelCol,
+    })
+    return json({ ok: true, batchId, total, truncated })
+  } catch (e) {
+    return err(e instanceof Error ? e.message : String(e))
   }
+}
 
-  const MAX_ROWS = 200
-  const rowsToProcess = records.slice(0, MAX_ROWS)
-  const errors: string[] = records.length > MAX_ROWS ? [`Truncated to first ${MAX_ROWS} rows`] : []
-  const predictions: unknown[] = []
-  let correct = 0
+function handleListBatchPredicts(taskId: string, url: URL): Response {
+  const task = getTask(taskId)
+  if (!task) return err(`Task "${taskId}" not found`, 404)
+  const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "50") || 50, 200)
+  const batches = listBatches(taskId, limit)
+  return json({ ok: true, batches })
+}
 
-  for (let i = 0; i < rowsToProcess.length; i++) {
-    const rowData = rowsToProcess[i]!
-    let features = featureCols.map((c) => { const v = parseFloat(rowData[c] ?? ""); return isNaN(v) ? 0 : v })
-    if (run.normStats) features = applyNorm(features, run.normStats.mean, run.normStats.std)
-    const inputName = `neuron_batch_api_${i % 50}`
-    await rsTensor.createTensor(inputName, features, [1, features.length])
-    const evalResult = await rsTensor.evaluateMlp(mlpName, inputName)
-
-    if (isRegression) {
-      const scale = run.weights?.["__regression_scale__"]?.data
-      const rawOutput = evalResult.predictions?.data?.[0] ?? 0
-      const value = rawOutput * (scale?.[1] ?? 1) + (scale?.[0] ?? 0)
-      const entry: Record<string, unknown> = { row: i + 1, value: +value.toFixed(6) }
-      if (labelCol && rowData[labelCol]) {
-        const truth = parseFloat(rowData[labelCol] ?? "0")
-        entry.truth = truth; entry.error = +(value - truth).toFixed(6)
-      }
-      predictions.push(entry)
-    } else {
-      const rawScores = evalResult.predictions?.data?.slice(0, K) ?? []
-      const probs = softmax(rawScores)
-      const predIdx = argmax(probs)
-      const label = labels[predIdx] ?? "unknown"
-      const confidence = +(probs[predIdx] ?? 0).toFixed(4)
-      const scored = labels.map((l, idx) => ({ label: l, prob: +(probs[idx] ?? 0).toFixed(4) }))
-        .sort((a, b) => b.prob - a.prob).slice(0, 3)
-      const entry: Record<string, unknown> = { row: i + 1, label, confidence, scores: scored }
-      if (labelCol && rowData[labelCol]) {
-        const truth = rowData[labelCol]!
-        entry.truth = truth; entry.correct = label === truth
-        if (label === truth) correct++
-      }
-      predictions.push(entry)
-    }
-  }
-
-  const result: Record<string, unknown> = {
-    ok: true, total: records.length, processed: rowsToProcess.length, errors, predictions,
-  }
-  if (labelCol && !isRegression && rowsToProcess.length > 0) {
-    result.accuracy = +(correct / rowsToProcess.length).toFixed(4)
-    result.correct = correct
-  }
-  return json(result)
+function handleGetBatchPredict(id: number): Response {
+  const batch = getBatch(id)
+  if (!batch) return err(`Batch ${id} not found`, 404)
+  return json({ ok: true, batch })
 }
 
 // ── Drift check ────────────────────────────────────────────────────────────────
@@ -1383,6 +1336,10 @@ Bun.serve({
 
     const taskBatchMatch = path.match(/^\/api\/tasks\/([^/]+)\/batch_predict$/)
     if (taskBatchMatch && req.method === "POST") return handleBatchPredict(decodeURIComponent(taskBatchMatch[1]!), req)
+    if (taskBatchMatch && req.method === "GET")  return handleListBatchPredicts(decodeURIComponent(taskBatchMatch[1]!), url)
+
+    const batchPredictGetMatch = path.match(/^\/api\/batch_predict\/(\d+)$/)
+    if (batchPredictGetMatch && req.method === "GET") return handleGetBatchPredict(parseInt(batchPredictGetMatch[1]!))
 
     const taskSuggestMatch = path.match(/^\/api\/tasks\/([^/]+)\/suggest_samples$/)
     if (taskSuggestMatch && req.method === "POST") return handleSuggestSamples(decodeURIComponent(taskSuggestMatch[1]!), req)

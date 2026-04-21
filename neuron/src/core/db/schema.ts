@@ -175,6 +175,29 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_predictions_task_ts ON predictions(task_id, ts DESC);
 `)
 
+// Phase 10.5 — batch predict runs (aggregated metadata per batch call)
+db.exec(`
+  CREATE TABLE IF NOT EXISTS batch_predict_runs (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id         TEXT NOT NULL,
+    run_id          INTEGER NOT NULL,
+    total           INTEGER NOT NULL,
+    processed       INTEGER NOT NULL DEFAULT 0,
+    correct         INTEGER,
+    accuracy        REAL,
+    status          TEXT NOT NULL DEFAULT 'running',
+    started_at      INTEGER NOT NULL DEFAULT (unixepoch()),
+    finished_at     INTEGER,
+    latency_ms_avg  REAL,
+    errors          TEXT NOT NULL DEFAULT '[]',
+    has_labels      INTEGER NOT NULL DEFAULT 0,
+    label_column    TEXT,
+    FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+    FOREIGN KEY(run_id)  REFERENCES runs(id)  ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_batch_predict_task ON batch_predict_runs(task_id, started_at DESC);
+`)
+
 // Phase 8.5 — shadow models + per-call comparison log
 // One shadow model per task; runs in parallel with the primary on every predict call.
 // Primary output is returned to the caller; shadow output is logged for offline agreement analysis.

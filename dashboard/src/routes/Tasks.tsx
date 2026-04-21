@@ -14,6 +14,7 @@ import { Empty } from "../components/Empty"
 import { ActiveRunCard } from "../components/ActiveRunCard"
 import { DriftBanner } from "../components/DriftBanner"
 import { ShadowCard } from "../components/ShadowCard"
+import { BatchPredictHistory } from "../components/BatchPredictHistory"
 import { clsx } from "clsx"
 
 function pct(v: number | null) {
@@ -387,6 +388,7 @@ export function TaskDetail() {
 
       <DriftBanner taskId={taskId} />
       <ShadowCard taskId={taskId} runs={runs} />
+      <BatchPredictHistory taskId={taskId} classification={task.kind === "classification"} />
 
       {/* Meta grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">

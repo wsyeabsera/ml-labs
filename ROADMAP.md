@@ -583,6 +583,32 @@ Our 5-dataset bench hits the target in wave 1 thanks to the Phase 3 modern seed 
 
 ---
 
+## Phase 10.5 (new) — Batch prediction observability
+
+**Status**: ✅ **Shipped as v1.3.0 on 2026-04-21.**
+
+**Goal**: Bring batch predict up to parity with training — persist batches, stream progress, show history.
+
+**What shipped**:
+- **`batch_predict_runs` table**: id, task_id, run_id, total, processed, correct, accuracy, status, timestamps, latency_ms_avg, errors, has_labels, label_column.
+- **Background worker** (`api/batchPredictBg.ts`): POST returns batchId immediately; worker processes rows async; MAX_ROWS raised 200 → 5000.
+- **Row-level logging**: each predicted row also written to the existing `predictions` table (with `model_uri = neuron://local/run/<id>#batch/<batchId>`) so drift detection and the prediction audit see batch traffic.
+- **Events**: `batch_predict_started` / `_progress` (every 50 rows) / `_completed` / `_failed`.
+- **API**: `GET /api/tasks/:id/batch_predict` (list), `GET /api/batch_predict/:id` (detail).
+- **Dashboard**: `BatchPredictLiveCard` with progress bar + running accuracy + throughput + ETA + latency; `BatchPredictHistory` table on TaskDetail (polls fast when running, slow otherwise); ActivityFeed wired to new event kinds.
+
+**Scope deltas**:
+- **Cancellation dropped** — no user pain yet; add only if asked.
+- **Registry-served batch predict deferred** — same pattern applies to `/api/registry/.../batch_predict` but separate concern.
+- **Per-row drill-through deferred** — predictions table has the rows; a pattern similar to ConfusionDrawer could light them up when asked.
+- **Parallel row-batching into rs-tensor deferred** — current path is one `evaluateMlp` per row; could batch into a single tensor call for 10-50× throughput. Perf work, no correctness gap.
+
+**Verification**: dashboard `tsc -b && vite build` clean, neuron `tsc --noEmit` clean, `bench:fast` accuracy=1.000 (Δ=+0.000 — no training-path changes).
+
+**Time**: ~2.5 hours.
+
+---
+
 ## Phase 10A (new) — Surface the reasoning we already produce
 
 **Status**: ✅ **Shipped as v1.2.0 on 2026-04-21.**
