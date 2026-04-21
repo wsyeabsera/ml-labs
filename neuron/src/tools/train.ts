@@ -1,13 +1,16 @@
 import { z } from "zod"
 import { getTask, updateTaskLabels } from "../core/db/tasks"
 import { getSamplesByTask, getSamplesByTaskAndSplit, sampleCounts } from "../core/db/samples"
-import { createRun, updateRunStatus, updateRunCheckpoint, finalizeRun } from "../core/db/runs"
+import { createRun, updateRunStatus, updateRunCheckpoint, finalizeRun, updateDatasetHash } from "../core/db/runs"
 import { registerModel } from "../core/db/models"
 import { setActiveRun, clearActiveRun, setTaskTrained, setRunProgress, clearRunProgress } from "../core/state"
 import { updateRunProgress, clearRunProgressDb } from "../core/db/runs"
 import { trainHead, type TrainHyperparams } from "../core/train"
 import { loadConfig } from "../adapter/loader"
 import { log, clearLog } from "../core/logger"
+import { buildRunContext } from "../core/run-context"
+import { datasetHash } from "../util/hash"
+import { resolveSeed } from "../util/rng"
 
 export const name = "train"
 export const description = "Train an MLP head for the task. Supports classification and regression, normalization, class balancing, and train/test split awareness."
@@ -68,7 +71,19 @@ export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
   if (testSamples.length > 0) log(`Hold-out test set: ${testSamples.length} samples`)
   log(`Head: [${headArch.join(" → ")}], lr=${hyperparams.lr}, epochs=${hyperparams.epochs}`)
 
-  const run = createRun(args.task_id, { ...hyperparams, headArch, classWeights: args.class_weights })
+  const seed = resolveSeed(args.seed)
+  const runContext = buildRunContext({ rng_seed: seed ?? undefined })
+  const run = createRun(
+    args.task_id,
+    { ...hyperparams, headArch, classWeights: args.class_weights },
+    { runContext },
+  )
+  try {
+    updateDatasetHash(
+      run.id,
+      datasetHash(trainSamples.map((s) => ({ id: s.id, label: s.label, features: s.features }))),
+    )
+  } catch { /* best-effort */ }
   const ac = new AbortController()
   setActiveRun(args.task_id, run.id, ac)
 

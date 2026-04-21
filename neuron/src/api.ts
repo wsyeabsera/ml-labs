@@ -148,6 +148,8 @@ function handleRun(id: number): Response {
     sampleCounts: r.sampleCounts, runProgress: r.runProgress,
     startedAt: r.startedAt, finishedAt: r.finishedAt,
     durationS: r.startedAt && r.finishedAt ? r.finishedAt - r.startedAt : null,
+    runContext: r.runContext, datasetHash: r.datasetHash,
+    cvFoldId: r.cvFoldId, cvParentId: r.cvParentId,
   })
 }
 

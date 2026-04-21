@@ -84,6 +84,10 @@ ensureColumns("runs", [
   "mae REAL",
   "rmse REAL",
   "r2 REAL",
+  "run_context TEXT",
+  "dataset_hash TEXT",
+  "cv_fold_id INTEGER",
+  "cv_parent_id INTEGER",
 ])
 ensureColumns("samples", ["raw TEXT", "split TEXT DEFAULT 'train'"])
 ensureColumns("tasks", ["normalize INTEGER DEFAULT 0", "feature_names TEXT"])

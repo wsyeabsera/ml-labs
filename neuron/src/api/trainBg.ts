@@ -11,6 +11,10 @@ import {
 } from "../core/state"
 import { trainHead } from "../core/train"
 import { loadConfig } from "../adapter/loader"
+import { buildRunContext } from "../core/run-context"
+import { datasetHash } from "../util/hash"
+import { resolveSeed } from "../util/rng"
+import { updateDatasetHash } from "../core/db/runs"
 
 export interface StartTrainArgs {
   taskId: string
@@ -20,6 +24,9 @@ export interface StartTrainArgs {
   classWeights?: "balanced"
   weightDecay?: number
   earlyStopPatience?: number
+  seed?: number
+  cvFoldId?: number
+  cvParentId?: number
 }
 
 export async function startTrainBackground(args: StartTrainArgs): Promise<{ runId: number }> {
@@ -49,12 +56,31 @@ export async function startTrainBackground(args: StartTrainArgs): Promise<{ runI
   const headArchFn = config?.headArchitecture ?? ((k: number, d: number) => [d, Math.max(d, 32), k])
   const headArch = args.headArch ?? headArchFn(K, D)
 
-  const run = createRun(args.taskId, {
-    lr, epochs, headArch,
-    classWeights: args.classWeights,
-    ...(args.weightDecay !== undefined ? { weightDecay: args.weightDecay } : {}),
-    ...(args.earlyStopPatience !== undefined ? { earlyStopPatience: args.earlyStopPatience } : {}),
-  })
+  const seed = resolveSeed(args.seed)
+  const runContext = buildRunContext({ rng_seed: seed ?? undefined })
+
+  const run = createRun(
+    args.taskId,
+    {
+      lr, epochs, headArch,
+      classWeights: args.classWeights,
+      ...(args.weightDecay !== undefined ? { weightDecay: args.weightDecay } : {}),
+      ...(args.earlyStopPatience !== undefined ? { earlyStopPatience: args.earlyStopPatience } : {}),
+    },
+    {
+      runContext,
+      cvFoldId: args.cvFoldId ?? null,
+      cvParentId: args.cvParentId ?? null,
+    },
+  )
+
+  // Dataset hash is computed once per run based on what the trainer actually sees.
+  try {
+    updateDatasetHash(
+      run.id,
+      datasetHash(trainSamples.map((s) => ({ id: s.id, label: s.label, features: s.features }))),
+    )
+  } catch { /* best-effort; don't fail training on hash errors */ }
   const ac = new AbortController()
   setActiveRun(args.taskId, run.id, ac)
 

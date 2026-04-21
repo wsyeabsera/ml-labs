@@ -1,6 +1,7 @@
 import { db } from "./schema"
 import { safeParse } from "../../util/json"
 import type { NormStats } from "./tasks"
+import type { RunContext } from "../run-context"
 
 export interface Run {
   id: number
@@ -22,9 +23,13 @@ export interface Run {
   runProgress: RunProgressBlob | null
   ownerPid: number | null
   sourceUri: string | null
-  status: "pending" | "running" | "completed" | "cancelled" | "failed" | "imported"
+  status: "pending" | "running" | "completed" | "cancelled" | "failed" | "imported" | "cv_parent"
   startedAt: number | null
   finishedAt: number | null
+  runContext: RunContext | null
+  datasetHash: string | null
+  cvFoldId: number | null
+  cvParentId: number | null
 }
 
 export interface RunProgressBlob {
@@ -51,6 +56,8 @@ interface DbRow {
   sample_counts: string | null; weights: string | null
   checkpoint: string | null; run_progress: string | null; owner_pid: number | null
   source_uri: string | null; status: string; started_at: number | null; finished_at: number | null
+  run_context: string | null; dataset_hash: string | null
+  cv_fold_id: number | null; cv_parent_id: number | null
 }
 
 function rowToRun(r: DbRow): Run {
@@ -75,14 +82,41 @@ function rowToRun(r: DbRow): Run {
     sourceUri: r.source_uri,
     status: r.status as Run["status"],
     startedAt: r.started_at, finishedAt: r.finished_at,
+    runContext: safeParse(r.run_context, null),
+    datasetHash: r.dataset_hash,
+    cvFoldId: r.cv_fold_id,
+    cvParentId: r.cv_parent_id,
   }
 }
 
-export function createRun(taskId: string, hyperparams: Record<string, unknown>, ownerPid = process.pid): Run {
+export interface CreateRunOpts {
+  ownerPid?: number
+  runContext?: RunContext | null
+  cvFoldId?: number | null
+  cvParentId?: number | null
+  status?: Run["status"]
+}
+
+export function createRun(
+  taskId: string,
+  hyperparams: Record<string, unknown>,
+  opts: CreateRunOpts = {},
+): Run {
+  const ownerPid = opts.ownerPid ?? process.pid
+  const status = opts.status ?? "running"
+  const runContextJson = opts.runContext ? JSON.stringify(opts.runContext) : null
   const result = db.prepare(
-    "INSERT INTO runs (task_id, hyperparams, status, started_at, owner_pid) VALUES (?, ?, 'running', unixepoch(), ?)"
-  ).run(taskId, JSON.stringify(hyperparams), ownerPid)
+    `INSERT INTO runs (task_id, hyperparams, status, started_at, owner_pid, run_context, cv_fold_id, cv_parent_id)
+     VALUES (?, ?, ?, unixepoch(), ?, ?, ?, ?)`,
+  ).run(
+    taskId, JSON.stringify(hyperparams), status, ownerPid,
+    runContextJson, opts.cvFoldId ?? null, opts.cvParentId ?? null,
+  )
   return getRun(result.lastInsertRowid as number)!
+}
+
+export function updateDatasetHash(id: number, hash: string): void {
+  db.prepare("UPDATE runs SET dataset_hash = ? WHERE id = ?").run(hash, id)
 }
 
 export function createImportedRun(taskId: string, sourceUri: string, weights: Record<string, { data: number[]; shape: number[] }>, accuracy: number | null): Run {
