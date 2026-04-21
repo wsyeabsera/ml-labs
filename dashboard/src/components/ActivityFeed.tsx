@@ -33,6 +33,12 @@ export function ActivityFeedProvider({ children }: { children: React.ReactNode }
   const [activeJob, setActiveJob] = useState<{ label: string; message: string } | null>(null)
   const qc = useQueryClient()
   const esRef = useRef<EventSource | null>(null)
+  // Events with id ≤ liveAfterId are considered historical (from the initial
+  // snapshot or a reconnect replay) and never trigger toasts. Set from the
+  // max id in the snapshot on each (re)connect.
+  const liveAfterIdRef = useRef<number>(Number.POSITIVE_INFINITY)
+  // Dedupe toast ids across the provider's lifetime — belt for the suspenders.
+  const toastedIdsRef = useRef<Set<number>>(new Set())
 
   const pushToast = useCallback((t: Omit<ToastItem, "id">) => {
     const id = `${Date.now()}-${Math.random()}`
@@ -48,6 +54,16 @@ export function ActivityFeedProvider({ children }: { children: React.ReactNode }
       const next = [...prev, ev]
       return next.length > MAX_EVENTS ? next.slice(-MAX_EVENTS) : next
     })
+
+    // Toasts fire only for events strictly newer than the snapshot watermark,
+    // and only once per event id. Historical events (via snapshot or reconnect
+    // replay) update the feed + invalidate queries but stay silent.
+    const isLive = ev.id > liveAfterIdRef.current && !toastedIdsRef.current.has(ev.id)
+    const toastIfLive: typeof pushToast = (t) => {
+      if (!isLive) return
+      toastedIdsRef.current.add(ev.id)
+      pushToast(t)
+    }
 
     // Update active job pill
     if (ev.kind === "run_progress" || ev.kind === "run_stage") {
@@ -81,7 +97,7 @@ export function ActivityFeedProvider({ children }: { children: React.ReactNode }
       }
       qc.invalidateQueries({ queryKey: ["allRuns"] })
       const acc = (ev.payload as { accuracy?: number }).accuracy
-      pushToast({
+      toastIfLive({
         kind: "success",
         message: `Run #${ev.runId} completed${acc != null ? ` — ${(acc * 100).toFixed(1)}%` : ""}`,
       })
@@ -99,7 +115,7 @@ export function ActivityFeedProvider({ children }: { children: React.ReactNode }
         qc.invalidateQueries({ queryKey: ["sweep", ev.taskId] })
       }
       const best = (ev.payload as { bestAccuracy?: number }).bestAccuracy
-      pushToast({
+      toastIfLive({
         kind: "success",
         message: `Sweep done${best != null ? ` — best ${(best * 100).toFixed(1)}%` : ""}`,
       })
@@ -110,7 +126,7 @@ export function ActivityFeedProvider({ children }: { children: React.ReactNode }
     if (ev.kind === "model_registered" && ev.taskId) {
       qc.invalidateQueries({ queryKey: ["task", ev.taskId] })
       qc.invalidateQueries({ queryKey: ["tasks"] })
-      pushToast({ kind: "info", message: `Model promoted for ${ev.taskId}` })
+      toastIfLive({ kind: "info", message: `Model promoted for ${ev.taskId}` })
     }
     if (ev.kind === "auto_started" || ev.kind === "auto_note" || ev.kind === "auto_completed") {
       if (ev.taskId) {
@@ -120,7 +136,7 @@ export function ActivityFeedProvider({ children }: { children: React.ReactNode }
       if (ev.kind === "auto_completed") {
         const p = ev.payload as { accuracy?: number }
         if (p.accuracy != null) {
-          pushToast({ kind: "success", message: `Auto-train done — ${(p.accuracy * 100).toFixed(1)}%` })
+          toastIfLive({ kind: "success", message: `Auto-train done — ${(p.accuracy * 100).toFixed(1)}%` })
         }
       }
     }
@@ -130,7 +146,7 @@ export function ActivityFeedProvider({ children }: { children: React.ReactNode }
     if (ev.kind === "calibrated" && ev.runId) {
       qc.invalidateQueries({ queryKey: ["run", ev.runId] })
       const T = (ev.payload as { temperature?: number }).temperature
-      pushToast({
+      toastIfLive({
         kind: "info",
         message: `Run #${ev.runId} calibrated${T != null ? ` — T=${T.toFixed(3)}` : ""}`,
       })
@@ -138,7 +154,7 @@ export function ActivityFeedProvider({ children }: { children: React.ReactNode }
     if (ev.kind === "drift_detected" && ev.taskId) {
       qc.invalidateQueries({ queryKey: ["drift", ev.taskId] })
       const verdict = (ev.payload as { verdict?: string }).verdict
-      pushToast({
+      toastIfLive({
         kind: verdict === "severe" ? "danger" : "warning",
         message: `Drift ${verdict ?? "detected"}${ev.taskId ? ` · ${ev.taskId}` : ""}`,
       })
@@ -162,8 +178,24 @@ export function ActivityFeedProvider({ children }: { children: React.ReactNode }
       es.addEventListener("snapshot", (e: MessageEvent) => {
         try {
           const evs = JSON.parse(e.data) as ApiEvent[]
+          // Raise the watermark to the newest id in the snapshot. Any event
+          // with id ≤ this came from history; only strictly newer events
+          // trigger toasts. On a first connect (liveAfterIdRef = +Infinity),
+          // snapshot ids are all historical by definition.
+          if (evs.length > 0) {
+            const maxId = evs.reduce((m, ev) => Math.max(m, ev.id), 0)
+            liveAfterIdRef.current = Number.isFinite(liveAfterIdRef.current)
+              ? Math.max(liveAfterIdRef.current, maxId)
+              : maxId
+          } else if (!Number.isFinite(liveAfterIdRef.current)) {
+            // Empty snapshot + first connect: anything that arrives is live.
+            liveAfterIdRef.current = 0
+          }
           setEvents((prev) => {
-            const all = [...prev, ...evs]
+            // Merge by id to avoid duplicates across reconnects.
+            const seen = new Set(prev.map((e) => e.id))
+            const add = evs.filter((e) => !seen.has(e.id))
+            const all = [...prev, ...add]
             return all.length > MAX_EVENTS ? all.slice(-MAX_EVENTS) : all
           })
         } catch { /* ignore */ }

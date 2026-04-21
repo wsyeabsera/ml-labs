@@ -44,6 +44,13 @@ interface ListEventsOpts {
   since?: number
   taskId?: string
   limit?: number
+  /**
+   * When set, returns the NEWEST N events (by id desc) instead of the oldest.
+   * Results are re-reversed into chronological order so callers always see
+   * ascending ids. Use this for SSE snapshots — the activity feed wants recent
+   * history, not the first events the DB ever recorded.
+   */
+  newest?: boolean
 }
 
 export function listEvents(opts: ListEventsOpts = {}): DbEvent[] {
@@ -56,13 +63,14 @@ export function listEvents(opts: ListEventsOpts = {}): DbEvent[] {
   if (opts.taskId != null)  { parts.push("task_id = ?"); params.push(opts.taskId) }
 
   const where = parts.length > 0 ? `WHERE ${parts.join(" AND ")}` : ""
+  const order = opts.newest ? "DESC" : "ASC"
   const rows = db.query<{
     id: number; ts: number; source: string; kind: string;
     task_id: string | null; run_id: number | null; payload: string
   }, (string | number)[]>(`SELECT id, ts, source, kind, task_id, run_id, payload
-     FROM events ${where} ORDER BY id ASC LIMIT ${limit}`).all(...params)
+     FROM events ${where} ORDER BY id ${order} LIMIT ${limit}`).all(...params)
 
-  return rows.map((r) => ({
+  const mapped = rows.map((r) => ({
     id: r.id,
     ts: r.ts,
     source: r.source as DbEvent["source"],
@@ -71,4 +79,7 @@ export function listEvents(opts: ListEventsOpts = {}): DbEvent[] {
     runId: r.run_id,
     payload: (() => { try { return JSON.parse(r.payload) } catch { return {} } })(),
   }))
+
+  // Always return in chronological order. When we queried newest-first, reverse.
+  return opts.newest ? mapped.reverse() : mapped
 }

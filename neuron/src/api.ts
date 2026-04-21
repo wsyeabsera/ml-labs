@@ -27,7 +27,7 @@ import { db } from "./core/db/schema"
 
 const PORT = parseInt(process.env.NEURON_API_PORT ?? "2626")
 const DIST = process.env.DASHBOARD_DIST ?? join(import.meta.dir, "../../dashboard/dist")
-const VERSION = "1.1.0"
+const VERSION = "1.1.1"
 const DB_DIR = (() => {
   const db = process.env.NEURON_DB
   return db ? join(db, "..") : join(import.meta.dir, "../../data")
@@ -1014,11 +1014,6 @@ async function handleConfig(): Promise<Response> {
 
 function handleEventsStream(): Response {
   let closed = false
-  let lastId = -1
-
-  // Seed cursor from latest event
-  const seed = listEvents({ limit: 1 })
-  if (seed.length > 0) lastId = seed[seed.length - 1]!.id - 1
 
   const stream = new ReadableStream({
     start(ctrl) {
@@ -1028,11 +1023,18 @@ function handleEventsStream(): Response {
         ctrl.enqueue(enc.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`))
       }
 
-      // Send last 50 events as initial snapshot
-      const snapshot = listEvents({ limit: 50 })
+      // Snapshot = newest 50 events, returned chronologically. `lastId` starts
+      // at the max id in the snapshot so the interval loop only emits events
+      // strictly newer than what the client just received. This prevents the
+      // "every refresh replays every event ever recorded" bug.
+      const snapshot = listEvents({ newest: true, limit: 50 })
+      let lastId: number
       if (snapshot.length > 0) {
         send("snapshot", snapshot)
         lastId = snapshot[snapshot.length - 1]!.id
+      } else {
+        // Empty DB — seed cursor at 0 so any future event will surface.
+        lastId = 0
       }
 
       const interval = setInterval(() => {

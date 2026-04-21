@@ -4,6 +4,26 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v1.1.1 — 2026-04-21
+
+**Fixes the "every refresh replays every notification" bug.**
+
+### Fixed
+
+- **Backend SSE snapshot was returning the *oldest* events, not the newest.** `listEvents({ limit: 50 })` orders by id ASC, so on every dashboard refresh the server sent the first 50 events ever recorded as the snapshot, then immediately streamed every event id > 50 as if it were *live* — firing a toast for every historical `run_completed`, `sweep_completed`, `calibrated`, `drift_detected`, and `model_registered` since the DB was created. Added a `newest: true` option to `listEvents` and switched `handleEventsStream` to use it.
+- **Client watermark** — belt for the suspenders. `ActivityFeedProvider` now tracks a `liveAfterId` watermark set from the max id in the snapshot. Events with `id ≤ liveAfterId` (the initial snapshot plus any reconnect replay) update the activity feed and invalidate React Query caches but never fire toasts. Each event id can toast at most once per session.
+- **Snapshot dedupe** — snapshot events are now merged by id, so reconnects don't duplicate rows in the activity feed.
+
+No user-facing API changes; upgrade is drop-in.
+
+### Upgrade
+
+```bash
+ml-labs update
+```
+
+---
+
 ## v1.1.0 — 2026-04-21
 
 **Production story follow-through.** Phase 8 shipped the v1.0 production MVP (serving + logging + drift detection). Three items were explicitly deferred; this release lands the two that close real user loops and drops the two that had no concrete consumer.
