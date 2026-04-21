@@ -24,6 +24,9 @@ export interface TrainHyperparams {
   activation?: "tanh" | "relu" | "gelu" | "leaky_relu"
   initStrategy?: "auto" | "xavier" | "kaiming"
   seed?: number
+  swa?: boolean
+  swaStartEpoch?: number
+  labelSmoothing?: number
 }
 
 export interface TrainProgress {
@@ -189,6 +192,9 @@ export async function trainHead<S>(opts: {
       ...(hyperparams.gradClip !== undefined ? { grad_clip: hyperparams.gradClip } : {}),
       ...(hyperparams.loss !== undefined ? { loss: hyperparams.loss } : {}),
       ...(hyperparams.seed !== undefined ? { rng_seed: hyperparams.seed } : {}),
+      ...(hyperparams.swa !== undefined ? { swa: hyperparams.swa } : {}),
+      ...(hyperparams.swaStartEpoch !== undefined ? { swa_start_epoch: hyperparams.swaStartEpoch } : {}),
+      ...(hyperparams.labelSmoothing !== undefined ? { label_smoothing: hyperparams.labelSmoothing } : {}),
     },
   )
   const lossHistory = trainResult.loss_history_sampled ?? []

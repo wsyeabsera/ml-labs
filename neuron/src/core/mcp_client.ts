@@ -141,6 +141,9 @@ export const rsTensor = {
       grad_clip?: number
       loss?: string
       rng_seed?: number
+      swa?: boolean
+      swa_start_epoch?: number
+      label_smoothing?: number
     },
   ) =>
     call<{
@@ -162,6 +165,9 @@ export const rsTensor = {
         ...(opts?.grad_clip !== undefined ? { grad_clip: opts.grad_clip } : {}),
         ...(opts?.loss !== undefined ? { loss: opts.loss } : {}),
         ...(opts?.rng_seed !== undefined ? { rng_seed: opts.rng_seed } : {}),
+        ...(opts?.swa !== undefined ? { swa: opts.swa } : {}),
+        ...(opts?.swa_start_epoch !== undefined ? { swa_start_epoch: opts.swa_start_epoch } : {}),
+        ...(opts?.label_smoothing !== undefined ? { label_smoothing: opts.label_smoothing } : {}),
       },
     ),
 

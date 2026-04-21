@@ -35,6 +35,8 @@ export const schema = {
   activation: z.enum(["tanh", "relu", "gelu", "leaky_relu"]).optional().describe("Hidden-layer activation (default: tanh). ReLU/GELU are standard for deeper networks and pair with Kaiming init."),
   init: z.enum(["auto", "xavier", "kaiming"]).optional().describe("Weight init strategy (default: auto — Xavier for tanh, Kaiming for ReLU family)."),
   seed: z.number().int().optional().describe("Reproducibility seed for mini-batch shuffle + run context. Respects NEURON_SEED env var when omitted."),
+  swa: z.boolean().optional().describe("Enable Stochastic Weight Averaging (running mean of weights over the last 25% of epochs)."),
+  label_smoothing: z.number().min(0).max(0.5).optional().describe("Label smoothing factor α ∈ [0, 0.5) for cross-entropy loss. Replaces one-hot target with (1-α)·onehot + α/K uniform. Typical value: 0.1."),
 }
 
 export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
@@ -76,6 +78,8 @@ export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
     ...(args.activation !== undefined ? { activation: args.activation } : {}),
     ...(args.init !== undefined ? { initStrategy: args.init } : {}),
     ...(args.seed !== undefined ? { seed: args.seed } : {}),
+    ...(args.swa !== undefined ? { swa: args.swa } : {}),
+    ...(args.label_smoothing !== undefined ? { labelSmoothing: args.label_smoothing } : {}),
   }
 
   const headArchFn = config?.headArchitecture ?? ((k: number, d: number) => [d, Math.max(d, 32), k])

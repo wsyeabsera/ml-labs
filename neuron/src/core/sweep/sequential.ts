@@ -42,6 +42,8 @@ export async function runSweepSequential(
         lrSchedule: config.lr_schedule,
         loss: config.loss,
         activation: config.activation,
+        swa: config.swa,
+        labelSmoothing: config.label_smoothing,
       })
 
       await waitForRunCompletion(runId, signal)

@@ -17,6 +17,7 @@ import {
 } from "./verdict"
 import { registerModel } from "../db/models"
 import { handler as publishHandler } from "../../tools/publish_model"
+import { handler as calibrateHandler } from "../../tools/calibrate"
 
 export interface ControllerArgs {
   task_id: string
@@ -325,6 +326,25 @@ export async function runController(args: ControllerArgs): Promise<ControllerRes
     registerModel(args.task_id, winner.run_id)
     log(args.auto_run_id, "promote", `registered run ${winner.run_id} as active model`)
     recordEvent({ source: "mcp", kind: "model_registered", taskId: args.task_id, runId: winner.run_id, payload: { via: "auto_train" } })
+
+    // Calibrate confidence via temperature scaling when the task is classification
+    // AND we have a val split — otherwise the tool is a no-op.
+    if (!isRegression) {
+      try {
+        const calib = await calibrateHandler({ run_id: winner.run_id } as Parameters<typeof calibrateHandler>[0]) as {
+          ok: boolean; temperature?: number; ece_before?: number; ece_after?: number; reason?: string
+        }
+        if (calib.ok) {
+          log(args.auto_run_id, "calibrate",
+            `T=${calib.temperature?.toFixed(3)}, ECE ${calib.ece_before?.toFixed(4)} → ${calib.ece_after?.toFixed(4)}`,
+            { temperature: calib.temperature, ece_before: calib.ece_before, ece_after: calib.ece_after })
+        } else {
+          log(args.auto_run_id, "calibrate_skipped", calib.reason ?? "no reason")
+        }
+      } catch (e) {
+        log(args.auto_run_id, "calibrate_failed", String(e))
+      }
+    }
 
     if (args.publish_name) {
       try {

@@ -10,6 +10,8 @@ export interface SweepConfig {
   lr_schedule?: "constant" | "cosine" | "linear_warmup"
   loss?: "mse" | "cross_entropy"
   activation?: "tanh" | "relu" | "gelu" | "leaky_relu"
+  swa?: boolean
+  label_smoothing?: number
 }
 
 export interface SearchSpec {

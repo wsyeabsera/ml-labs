@@ -59,6 +59,7 @@ export function refineFromSignals(bundle: SignalBundle): RefinementPlan {
     ]
     // Modern variant: AdamW + ReLU + cosine + CE (classification) / MSE (regression).
     // Mini-batch kicks in once N ≥ 50 — below that, full-batch is simpler and faster.
+    // Calibration goodies: label_smoothing on CE (classification), SWA on long runs.
     const modernBatch = n >= 50 ? Math.max(8, Math.min(64, Math.floor(n / 8))) : undefined
     const modern: SweepConfig = {
       lr: clampLr(0.01),
@@ -69,7 +70,8 @@ export function refineFromSignals(bundle: SignalBundle): RefinementPlan {
       lr_schedule: "cosine",
       weight_decay: 0.01,
       ...(modernBatch !== undefined ? { batch_size: modernBatch } : {}),
-      ...(!isRegression ? { loss: "cross_entropy" } : {}),
+      ...(!isRegression ? { loss: "cross_entropy", label_smoothing: 0.1 } : {}),
+      ...(epochs >= 200 ? { swa: true } : {}),
     }
     configs.push(modern)
 

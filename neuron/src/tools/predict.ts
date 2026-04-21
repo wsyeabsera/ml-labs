@@ -76,7 +76,10 @@ export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
   }
 
   const rawScores = evalResult.predictions?.data?.slice(0, K) ?? []
-  const probs = softmax(rawScores)
+  // Apply temperature scaling if the run has been calibrated (Phase 4).
+  const T = run.calibrationTemperature ?? null
+  const scaled = T !== null && T > 0 ? rawScores.map((v) => v / T) : rawScores
+  const probs = softmax(scaled)
   const idx = argmax(probs)
   const label = labels[idx] ?? labels[0] ?? "unknown"
   const confidence = probs[idx] ?? 0
@@ -87,5 +90,5 @@ export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
     if (l) scores[l] = probs[i] ?? 0
   }
 
-  return { label, confidence, scores }
+  return { label, confidence, scores, calibrated: T !== null }
 }

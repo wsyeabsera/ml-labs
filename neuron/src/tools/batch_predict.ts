@@ -98,7 +98,9 @@ export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
       predictions.push(entry)
     } else {
       const rawScores = evalResult.predictions?.data?.slice(0, K) ?? []
-      const probs = softmax(rawScores)
+      const T = run.calibrationTemperature ?? null
+      const scaled = T !== null && T > 0 ? rawScores.map((v) => v / T) : rawScores
+      const probs = softmax(scaled)
       const predIdx = argmax(probs)
       const label = labels[predIdx] ?? "unknown"
       const confidence = +(probs[predIdx] ?? 0).toFixed(4)
@@ -121,6 +123,7 @@ export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
     total: rows.length,
     errors: errors.slice(0, 20),
     predictions,
+    calibrated: run.calibrationTemperature != null,
   }
 
   if (hasGroundTruth && !isRegression && rows.length > 0) {

@@ -30,6 +30,7 @@ export interface Run {
   datasetHash: string | null
   cvFoldId: number | null
   cvParentId: number | null
+  calibrationTemperature: number | null
 }
 
 export interface RunProgressBlob {
@@ -58,6 +59,7 @@ interface DbRow {
   source_uri: string | null; status: string; started_at: number | null; finished_at: number | null
   run_context: string | null; dataset_hash: string | null
   cv_fold_id: number | null; cv_parent_id: number | null
+  calibration_temperature: number | null
 }
 
 function rowToRun(r: DbRow): Run {
@@ -86,6 +88,7 @@ function rowToRun(r: DbRow): Run {
     datasetHash: r.dataset_hash,
     cvFoldId: r.cv_fold_id,
     cvParentId: r.cv_parent_id,
+    calibrationTemperature: r.calibration_temperature,
   }
 }
 
@@ -117,6 +120,10 @@ export function createRun(
 
 export function updateDatasetHash(id: number, hash: string): void {
   db.prepare("UPDATE runs SET dataset_hash = ? WHERE id = ?").run(hash, id)
+}
+
+export function updateCalibrationTemperature(id: number, t: number): void {
+  db.prepare("UPDATE runs SET calibration_temperature = ? WHERE id = ?").run(t, id)
 }
 
 export function createImportedRun(taskId: string, sourceUri: string, weights: Record<string, { data: number[]; shape: number[] }>, accuracy: number | null): Run {

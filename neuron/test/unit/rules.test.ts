@@ -25,7 +25,7 @@ describe("refineFromSignals — seed wave (empty current_wave)", () => {
     }
   })
 
-  test("modern variant uses AdamW + ReLU + cosine + CE for classification", () => {
+  test("modern variant uses AdamW + ReLU + cosine + CE + label_smoothing + SWA for classification", () => {
     const plan = refineFromSignals(bundleEmpty())
     const modern = plan.configs.find((c) => c.optimizer === "adamw")
     expect(modern).toBeDefined()
@@ -33,6 +33,9 @@ describe("refineFromSignals — seed wave (empty current_wave)", () => {
     expect(modern!.lr_schedule).toBe("cosine")
     expect(modern!.loss).toBe("cross_entropy")
     expect(modern!.weight_decay).toBeGreaterThan(0)
+    expect(modern!.label_smoothing).toBeGreaterThan(0)
+    // SWA kicks in for epochs >= 200; bundleEmpty has N=300 → epochs=400 → swa should be true
+    expect(modern!.swa).toBe(true)
   })
 
   test("adds class_weights=balanced variant when imbalance > 3", () => {

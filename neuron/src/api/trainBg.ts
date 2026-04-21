@@ -39,6 +39,9 @@ export interface StartTrainArgs {
   loss?: "mse" | "cross_entropy"
   activation?: "tanh" | "relu" | "gelu" | "leaky_relu"
   initStrategy?: "auto" | "xavier" | "kaiming"
+  swa?: boolean
+  swaStartEpoch?: number
+  labelSmoothing?: number
 }
 
 export async function startTrainBackground(args: StartTrainArgs): Promise<{ runId: number }> {
@@ -123,6 +126,9 @@ export async function startTrainBackground(args: StartTrainArgs): Promise<{ runI
           ...(args.activation !== undefined ? { activation: args.activation } : {}),
           ...(args.initStrategy !== undefined ? { initStrategy: args.initStrategy } : {}),
           ...(seed !== undefined ? { seed } : {}),
+          ...(args.swa !== undefined ? { swa: args.swa } : {}),
+          ...(args.swaStartEpoch !== undefined ? { swaStartEpoch: args.swaStartEpoch } : {}),
+          ...(args.labelSmoothing !== undefined ? { labelSmoothing: args.labelSmoothing } : {}),
         },
         runId: run.id,
         isRegression,

@@ -88,6 +88,7 @@ ensureColumns("runs", [
   "dataset_hash TEXT",
   "cv_fold_id INTEGER",
   "cv_parent_id INTEGER",
+  "calibration_temperature REAL",
 ])
 ensureColumns("samples", ["raw TEXT", "split TEXT DEFAULT 'train'"])
 ensureColumns("tasks", ["normalize INTEGER DEFAULT 0", "feature_names TEXT"])

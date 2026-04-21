@@ -82,6 +82,18 @@ pub struct TrainMlpArgs {
     /// so behavior stays deterministic across runs — override via NEURON_SEED upstream.
     #[serde(default)]
     pub rng_seed: Option<u64>,
+    /// Enable Stochastic Weight Averaging: maintains a running mean of weights
+    /// once `swa_start_epoch` is reached and swaps them in at the end. Modest
+    /// regularization win in most settings (JMLR 2025).
+    #[serde(default)]
+    pub swa: Option<bool>,
+    /// Epoch at which SWA averaging begins. Default = round(epochs * 0.75).
+    #[serde(default)]
+    pub swa_start_epoch: Option<usize>,
+    /// Label smoothing factor α ∈ [0, 1). CE loss replaces one-hot target with
+    /// (1-α)·onehot + α/K. Classification + cross_entropy loss only.
+    #[serde(default)]
+    pub label_smoothing: Option<f32>,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]

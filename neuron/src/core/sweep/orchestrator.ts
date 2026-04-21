@@ -37,6 +37,8 @@ export async function runOneConfig(
     (config.lr_schedule !== undefined ? `, lr_schedule="${config.lr_schedule}"` : "") +
     (config.loss !== undefined ? `, loss="${config.loss}"` : "") +
     (config.activation !== undefined ? `, activation="${config.activation}"` : "") +
+    (config.swa !== undefined ? `, swa=${config.swa}` : "") +
+    (config.label_smoothing !== undefined ? `, label_smoothing=${config.label_smoothing}` : "") +
     `, auto_register=false. ` +
     `After training completes, output ONLY a single JSON line: {"run_id":<id>,"accuracy":<val>}`
 

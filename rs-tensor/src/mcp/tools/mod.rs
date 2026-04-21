@@ -708,6 +708,9 @@ impl TensorServer {
         let grad_clip = args.grad_clip;
         let loss_name = args.loss.as_deref().unwrap_or("mse").to_string();
         let base_lr = args.lr;
+        let swa_enabled = args.swa.unwrap_or(false);
+        let swa_start = args.swa_start_epoch.unwrap_or((args.epochs as f32 * 0.75).round() as usize);
+        let label_smoothing = args.label_smoothing.unwrap_or(0.0).clamp(0.0, 0.99);
 
         if !matches!(optimizer.as_str(), "sgd" | "adam" | "adamw") {
             return Ok(CallToolResult::error(vec![Content::text(
@@ -752,6 +755,24 @@ impl TensorServer {
                     }
                 }
             }
+        }
+
+        // SWA: initialize running-average buffers + a count of how many epochs
+        // have been averaged. We store the count in the first slot of a tiny
+        // `{mlp}_swa_count` tensor to keep state inside the existing store.
+        if swa_enabled {
+            for l in 0..n_layers {
+                for &suffix in &["w", "b"] {
+                    let base_name = format!("{}_{}{}", args.mlp, suffix, l);
+                    let base = store.get(&base_name).unwrap().clone();
+                    let avg_name = format!("{}_swa", base_name);
+                    store.insert(avg_name, Tensor::new(vec![0.0f32; base.data.len()], base.shape.clone()));
+                }
+            }
+            store.insert(
+                format!("{}_swa_count", args.mlp),
+                Tensor::new(vec![0.0f32], vec![1]),
+            );
         }
 
         let mut loss_history: Vec<f32> = Vec::with_capacity(args.epochs);
@@ -855,7 +876,11 @@ impl TensorServer {
                 let (loss, mut grad): (f32, Vec<f32>) = match loss_name.as_str() {
                     "cross_entropy" => {
                         // Stable softmax + cross-entropy over rows.
+                        // Label smoothing: smoothed_target = (1-α)·onehot + α/K (uniform).
                         let k = out_dim;
+                        let alpha = label_smoothing;
+                        let one_minus_a = 1.0 - alpha;
+                        let uniform_eps = alpha / k as f32;
                         let mut probs = vec![0.0f32; output.data.len()];
                         let mut row_loss = 0.0f32;
                         for r in 0..rows {
@@ -866,14 +891,18 @@ impl TensorServer {
                             let log_sum = sum_exp.ln() + max_logit;
                             for j in 0..k {
                                 probs[r * k + j] = exps[j] / sum_exp;
-                                row_loss -= batch_target.data[r * k + j] * (row[j] - log_sum);
+                                let raw_target = batch_target.data[r * k + j];
+                                let smooth_target = one_minus_a * raw_target + uniform_eps;
+                                row_loss -= smooth_target * (row[j] - log_sum);
                             }
                         }
                         let loss = row_loss / rows as f32;
-                        // dL/dlogits = (softmax - target) / rows
-                        let grad: Vec<f32> = probs.iter().zip(batch_target.data.iter())
-                            .map(|(p, t)| (p - t) / rows as f32)
-                            .collect();
+                        // dL/dlogits = (softmax - smoothed_target) / rows
+                        let grad: Vec<f32> = probs.iter().enumerate().map(|(idx, p)| {
+                            let raw_target = batch_target.data[idx];
+                            let smooth_target = one_minus_a * raw_target + uniform_eps;
+                            (p - smooth_target) / rows as f32
+                        }).collect();
                         (loss, grad)
                     }
                     _ => {
@@ -992,6 +1021,31 @@ impl TensorServer {
             loss_history.push(epoch_loss);
             epochs_done += 1;
 
+            // SWA running-average update. Once the warmup fraction is reached,
+            // incorporate current weights into the running mean per param:
+            //   avg ← avg + (w - avg) / n     with n = swa_count + 1
+            if swa_enabled && epoch >= swa_start {
+                let count_name = format!("{}_swa_count", args.mlp);
+                let prev_n = store.get(&count_name).and_then(|t| t.data.first().copied()).unwrap_or(0.0);
+                let new_n = prev_n + 1.0;
+                let inv_n = 1.0 / new_n;
+                for l in 0..n_layers {
+                    for &suffix in &["w", "b"] {
+                        let base_name = format!("{}_{}{}", args.mlp, suffix, l);
+                        let avg_name = format!("{}_swa", base_name);
+                        let w_data = store.get(&base_name).unwrap().data.clone();
+                        if let Some(avg) = store.get_mut(&avg_name) {
+                            for i in 0..avg.data.len() {
+                                avg.data[i] += (w_data[i] - avg.data[i]) * inv_n;
+                            }
+                        }
+                    }
+                }
+                if let Some(c) = store.get_mut(&count_name) {
+                    c.data[0] = new_n;
+                }
+            }
+
             if let Some(pat) = patience {
                 if epoch_loss < best_loss - 1e-6 {
                     best_loss = epoch_loss;
@@ -1000,6 +1054,27 @@ impl TensorServer {
                     patience_counter += 1;
                     if patience_counter >= pat { break; }
                 }
+            }
+        }
+
+        // SWA commit: if we ran SWA long enough to accumulate at least one
+        // snapshot, swap the running averages into the actual parameter tensors.
+        let mut swa_committed = false;
+        if swa_enabled {
+            let count_name = format!("{}_swa_count", args.mlp);
+            let n = store.get(&count_name).and_then(|t| t.data.first().copied()).unwrap_or(0.0);
+            if n >= 1.0 {
+                for l in 0..n_layers {
+                    for &suffix in &["w", "b"] {
+                        let base_name = format!("{}_{}{}", args.mlp, suffix, l);
+                        let avg_name = format!("{}_swa", base_name);
+                        let avg_data = store.get(&avg_name).unwrap().data.clone();
+                        if let Some(w) = store.get_mut(&base_name) {
+                            w.data = avg_data;
+                        }
+                    }
+                }
+                swa_committed = true;
             }
         }
 
@@ -1030,6 +1105,9 @@ impl TensorServer {
                 "lr_schedule": lr_schedule,
                 "loss": loss_name,
                 "activation": activation,
+                "swa_enabled": swa_enabled,
+                "swa_committed": swa_committed,
+                "label_smoothing": label_smoothing,
             })).unwrap()
         )]))
     }
@@ -1048,10 +1126,24 @@ impl TensorServer {
             )])),
         };
 
-        // Forward pass
+        // Read activation from meta (default tanh for backward compat).
+        let activation = {
+            let meta = self.meta.lock().await;
+            meta.get(&format!("{}_activation", args.mlp))
+                .cloned()
+                .unwrap_or_else(|| "tanh".to_string())
+        };
+
+        // Count layers first so we can skip activation on the output layer.
+        let mut n_layers = 0;
+        while store.contains_key(&format!("{}_w{}", args.mlp, n_layers)) { n_layers += 1; }
+
+        // Forward pass — activation applied to all layers (matches train_mlp
+        // when loss=mse; for CE-trained models the extra activation on output
+        // doesn't change argmax, so predictions are still correct).
         let mut current = inputs.clone();
-        let mut l = 0;
-        while let Some(w) = store.get(&format!("{}_w{}", args.mlp, l)) {
+        for l in 0..n_layers {
+            let w = store.get(&format!("{}_w{}", args.mlp, l)).unwrap();
             let b = store.get(&format!("{}_b{}", args.mlp, l)).unwrap();
             let rows = current.shape[0];
             let cols = w.shape[1];
@@ -1063,11 +1155,11 @@ impl TensorServer {
                     for k in 0..inner {
                         sum += current.data[i * inner + k] * w.data[k * cols + j];
                     }
-                    result[i * cols + j] = (sum + b.data[j]).tanh();
+                    let pre = sum + b.data[j];
+                    result[i * cols + j] = apply_activation(pre, &activation);
                 }
             }
             current = Tensor::new(result, vec![rows, cols]);
-            l += 1;
         }
 
         let mut response = json!({
@@ -1109,6 +1201,13 @@ impl TensorServer {
     ) -> Result<CallToolResult, McpError> {
         let store = self.tensors.lock().await;
 
+        let activation = {
+            let meta = self.meta.lock().await;
+            meta.get(&format!("{}_activation", args.mlp))
+                .cloned()
+                .unwrap_or_else(|| "tanh".to_string())
+        };
+
         let mut current = args.input.clone();
         let mut l = 0;
         while let Some(w) = store.get(&format!("{}_w{}", args.mlp, l)) {
@@ -1121,7 +1220,7 @@ impl TensorServer {
                 for k in 0..in_f {
                     sum += current[k] * w.data[k * out_f + j];
                 }
-                result[j] = (sum + b.data[j]).tanh();
+                result[j] = apply_activation(sum + b.data[j], &activation);
             }
             current = result;
             l += 1;
