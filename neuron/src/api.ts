@@ -37,7 +37,7 @@ if (reaped.runsReaped > 0 || reaped.autoRunsReaped > 0) {
 
 const PORT = parseInt(process.env.NEURON_API_PORT ?? "2626")
 const DIST = process.env.DASHBOARD_DIST ?? join(import.meta.dir, "../../dashboard/dist")
-const VERSION = "1.4.0"
+const VERSION = "1.5.0"
 const DB_DIR = (() => {
   const db = process.env.NEURON_DB
   return db ? join(db, "..") : join(import.meta.dir, "../../data")
@@ -1156,6 +1156,110 @@ function handlePromoteShadow(taskId: string): Response {
   return json({ ok: true, taskId, runId: shadow.runId })
 }
 
+// ── Phase 11A: Labeling UI endpoints ──────────────────────────────────────────
+
+async function handleLabelQueue(taskId: string, url: URL): Promise<Response> {
+  const task = getTask(taskId)
+  if (!task) return err(`Task "${taskId}" not found`, 404)
+  if (task.kind === "regression") return err("labeling UI is for classification only", 400)
+  const n = Math.max(1, Math.min(50, parseInt(url.searchParams.get("n") ?? "10") || 10))
+  try {
+    const { handler: suggestHandler } = await import("./tools/suggest_samples")
+    const res = await suggestHandler({ task_id: taskId, n_suggestions: n, confidence_threshold: 0.9 })
+    return json(res)
+  } catch (e) {
+    return err(e instanceof Error ? e.message : String(e))
+  }
+}
+
+async function handlePostSample(taskId: string, req: Request): Promise<Response> {
+  const task = getTask(taskId)
+  if (!task) return err(`Task "${taskId}" not found`, 404)
+  let body: { features?: number[]; label?: string; split?: "train" | "test" } = {}
+  try { body = (await req.json()) as typeof body } catch { return err("Invalid JSON body") }
+  if (!Array.isArray(body.features) || body.features.some((v) => typeof v !== "number")) {
+    return err("features must be an array of numbers")
+  }
+  if (typeof body.label !== "string" || body.label.length === 0) return err("label must be a non-empty string")
+  const split = body.split === "test" ? "test" : "train"
+  const expectedD = task.featureShape[0] ?? body.features.length
+  if (body.features.length !== expectedD) {
+    return err(`feature vector has ${body.features.length} dims, task expects ${expectedD}`)
+  }
+  insertSamplesBatch([{ taskId, label: body.label, features: body.features, split }])
+  recordEvent({
+    source: "api",
+    kind: "sample_labeled",
+    taskId,
+    payload: { label: body.label, split, via: "label_ui" },
+  })
+  return json({ ok: true, taskId, label: body.label, split })
+}
+
+// ── Phase 11A: LLM playground routes ──────────────────────────────────────────
+
+// Minimal in-process state tracking — the real state lives in rs-tensor. We only
+// mirror "is something loaded / path we loaded / last inspect" so the dashboard
+// can render without hammering rs-tensor on every poll.
+let llmState: { loaded: boolean; path?: string; info?: string; lastInspect?: Record<string, unknown> } = {
+  loaded: false,
+}
+
+async function handleLlmStatus(): Promise<Response> {
+  if (!llmState.loaded) return json({ ok: true, loaded: false })
+  try {
+    const inspect = await rsTensor.llamaInspect()
+    llmState.lastInspect = inspect as unknown as Record<string, unknown>
+    return json({ ok: true, loaded: true, path: llmState.path, info: llmState.info, inspect })
+  } catch (e) {
+    // rs-tensor says no model loaded — resync our mirror
+    llmState = { loaded: false }
+    return json({ ok: true, loaded: false, error: e instanceof Error ? e.message : String(e) })
+  }
+}
+
+async function handleLlmLoad(req: Request): Promise<Response> {
+  let body: { path?: string } = {}
+  try { body = (await req.json()) as typeof body } catch { return err("Invalid JSON body") }
+  if (!body.path) return err("path is required")
+  try {
+    const res = await rsTensor.llamaLoad(body.path)
+    llmState = { loaded: true, path: body.path, info: res.text }
+    recordEvent({ source: "api", kind: "llm_loaded", payload: { path: body.path } })
+    return json({ ok: true, info: res.text })
+  } catch (e) {
+    return err(e instanceof Error ? e.message : String(e))
+  }
+}
+
+async function handleLlmGenerate(req: Request): Promise<Response> {
+  let body: { prompt?: string; max_tokens?: number; temperature?: number; token_ids?: number[] } = {}
+  try { body = (await req.json()) as typeof body } catch { return err("Invalid JSON body") }
+  if (!body.prompt && !body.token_ids) return err("prompt or token_ids required")
+  const maxTokens = Math.max(1, Math.min(2048, body.max_tokens ?? 64))
+  const temperature = Math.max(0, Math.min(2, body.temperature ?? 0.8))
+  try {
+    const res = await rsTensor.llamaGenerate({
+      prompt: body.prompt,
+      token_ids: body.token_ids,
+      max_tokens: maxTokens,
+      temperature,
+    })
+    recordEvent({
+      source: "api",
+      kind: "llm_generated",
+      payload: {
+        num_generated: res.num_generated,
+        elapsed_ms: res.elapsed_ms,
+        tokens_per_sec: res.tokens_per_sec,
+      },
+    })
+    return json({ ok: true, ...res })
+  } catch (e) {
+    return err(e instanceof Error ? e.message : String(e))
+  }
+}
+
 // ── Auto-run routes ───────────────────────────────────────────────────────────
 
 function handleAutoRuns(url: URL): Response {
@@ -1352,6 +1456,12 @@ Bun.serve({
     const taskSuggestMatch = path.match(/^\/api\/tasks\/([^/]+)\/suggest_samples$/)
     if (taskSuggestMatch && req.method === "POST") return handleSuggestSamples(decodeURIComponent(taskSuggestMatch[1]!), req)
 
+    const taskLabelQueueMatch = path.match(/^\/api\/tasks\/([^/]+)\/label-queue$/)
+    if (taskLabelQueueMatch && req.method === "GET") return handleLabelQueue(decodeURIComponent(taskLabelQueueMatch[1]!), url)
+
+    const taskSamplesMatch = path.match(/^\/api\/tasks\/([^/]+)\/samples$/)
+    if (taskSamplesMatch && req.method === "POST") return handlePostSample(decodeURIComponent(taskSamplesMatch[1]!), req)
+
     const taskDriftMatch = path.match(/^\/api\/tasks\/([^/]+)\/drift$/)
     if (taskDriftMatch && req.method === "GET") return handleDrift(decodeURIComponent(taskDriftMatch[1]!), url)
 
@@ -1368,6 +1478,10 @@ Bun.serve({
 
     const runMatch = path.match(/^\/api\/runs\/(\d+)$/)
     if (runMatch && req.method === "GET")        return handleRun(parseInt(runMatch[1]!))
+
+    if (path === "/api/llm/status"   && req.method === "GET")  return handleLlmStatus()
+    if (path === "/api/llm/load"     && req.method === "POST") return handleLlmLoad(req)
+    if (path === "/api/llm/generate" && req.method === "POST") return handleLlmGenerate(req)
 
     if (path === "/api/auto" && req.method === "GET") return handleAutoRuns(url)
     const autoRunMatch = path.match(/^\/api\/auto\/(\d+)$/)

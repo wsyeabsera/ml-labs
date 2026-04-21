@@ -2,7 +2,7 @@ import { useState } from "react"
 import { useParams, Link, useNavigate } from "react-router-dom"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { motion, AnimatePresence } from "framer-motion"
-import { Database, AlertTriangle, ArrowRight, GitCompare, Trash2, RotateCcw } from "lucide-react"
+import { Database, AlertTriangle, ArrowRight, GitCompare, Trash2, RotateCcw, Tag } from "lucide-react"
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
   CartesianGrid, ReferenceLine,
@@ -372,13 +372,24 @@ export function TaskDetail() {
         title={task.id}
         subtitle={`${task.kind} · ${task.featureShape[0]}D features`}
         action={
-          <button
-            onClick={() => setShowReset(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[var(--text-3)] border border-[var(--border)] rounded-md hover:text-[var(--danger)] hover:border-[var(--danger)] hover:bg-[var(--danger-dim)] transition-all"
-          >
-            <RotateCcw size={12} />
-            Reset
-          </button>
+          <div className="flex items-center gap-2">
+            {task.kind === "classification" && (
+              <Link
+                to={`/tasks/${encodeURIComponent(taskId)}/label`}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[var(--text-2)] border border-[var(--border)] rounded-md hover:text-[var(--accent-text)] hover:border-[var(--accent-border)] transition-all"
+              >
+                <Tag size={12} />
+                Label
+              </Link>
+            )}
+            <button
+              onClick={() => setShowReset(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[var(--text-3)] border border-[var(--border)] rounded-md hover:text-[var(--danger)] hover:border-[var(--danger)] hover:bg-[var(--danger-dim)] transition-all"
+            >
+              <RotateCcw size={12} />
+              Reset
+            </button>
+          </div>
         }
       />
 

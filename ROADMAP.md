@@ -583,6 +583,30 @@ Our 5-dataset bench hits the target in wave 1 thanks to the Phase 3 modern seed 
 
 ---
 
+## Phase 11A (new) — Small-LLM inference surface + Labeling UI
+
+**Status**: ✅ **Shipped as v1.5.0 on 2026-04-21.**
+
+**Goal**: Surface the dormant LLaMA/GGUF inference code in rs-tensor (~1000 lines in `llama.rs` + `gguf.rs` + `attention.rs` that were never exposed at the Neuron layer) as MCP tools + dashboard Playground. Also ship the long-deferred labeling UI (closes the active-learning visual loop from Phase 7A).
+
+**What shipped**:
+- **3 new MCP tools** — `llm_load`, `llm_generate`, `llm_inspect` — thin wrappers over rs-tensor's existing rmcp tools.
+- **HTTP wrappers** + dashboard `/playground` route: load a GGUF, inspect config, generate with max_tokens + temperature sliders, see text + tok/s.
+- **`callText` helper** in `mcp_client` for rs-tensor tools that return non-JSON strings (llama_load).
+- **Labeling UI** at `/tasks/:id/label` — one uncertain sample at a time, digit-key shortcuts, "Use prediction" / "Skip" / "Refresh", retrain banner at ≥10 labels. Label button added to TaskDetail header. Reuses `suggest_samples` as the queue source.
+- **New endpoints**: `GET /api/tasks/:id/label-queue`, `POST /api/tasks/:id/samples`.
+
+**Honest scope deltas**:
+- **`llm_embed` deferred to Phase 11B.** rs-tensor doesn't expose hidden states, and the tokenizer is naive whitespace-split (unknown words silently skipped). Real embedding-based text classification needs a proper BPE/SentencePiece tokenizer + hidden-state export — both are meaningful Rust work.
+- **No fine-tuning, no streaming, one model at a time** — rs-tensor constraints.
+- **CPU-only** — 5-10 tok/s on a 1B model.
+
+**Verification**: dashboard `tsc -b && vite build` clean, neuron `tsc --noEmit` clean, bench Δ=+0.000.
+
+**Time**: ~3 hours.
+
+---
+
 ## Phase 10.6 (new) — Cancellable auto_train + zombie reaper
 
 **Status**: ✅ **Shipped as v1.4.0 on 2026-04-21.**

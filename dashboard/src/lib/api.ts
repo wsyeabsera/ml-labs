@@ -508,6 +508,84 @@ export const api = {
 
   batchPredictRun: (id: number) =>
     get<{ ok: boolean; batch: ApiBatchPredictRun }>(`/batch_predict/${id}`),
+
+  // ── Phase 11A: LLM playground ──────────────────────────────────────────────
+
+  llmStatus: () => get<ApiLlmStatus>(`/llm/status`),
+
+  llmLoad: (path: string) =>
+    fetch(`${BASE}/llm/load`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path }),
+    }).then(async (res) => {
+      const data = await res.json() as { ok?: boolean; info?: string; error?: string }
+      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`)
+      return data as { ok: true; info: string }
+    }),
+
+  llmGenerate: (args: { prompt: string; max_tokens: number; temperature: number }) =>
+    fetch(`${BASE}/llm/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(args),
+    }).then(async (res) => {
+      const data = await res.json() as ApiLlmGenerate & { error?: string }
+      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`)
+      return data
+    }),
+
+  // ── Phase 11A: Labeling UI ─────────────────────────────────────────────────
+
+  labelQueue: (taskId: string, n = 10) =>
+    get<ApiSuggestSamples>(`/tasks/${encodeURIComponent(taskId)}/label-queue?n=${n}`),
+
+  postSample: (taskId: string, features: number[], label: string, split: "train" | "test" = "train") =>
+    fetch(`${BASE}/tasks/${encodeURIComponent(taskId)}/samples`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ features, label, split }),
+    }).then(async (res) => {
+      const data = await res.json() as { ok?: boolean; error?: string }
+      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`)
+      return data as { ok: true }
+    }),
+}
+
+// ── Phase 11A: LLM types ──────────────────────────────────────────────────────
+
+export interface ApiLlmStatus {
+  ok: boolean
+  loaded: boolean
+  path?: string
+  info?: string
+  inspect?: {
+    config?: {
+      dim: number
+      n_layers: number
+      n_heads: number
+      n_kv_heads: number
+      vocab_size: number
+      ffn_dim: number
+      head_dim: number
+      rms_eps: number
+    }
+    vocab_size?: number
+    total_parameters?: number
+    total_parameters_human?: string
+    vocab_sample_first_20?: string[]
+  }
+  error?: string
+}
+
+export interface ApiLlmGenerate {
+  ok: boolean
+  text: string
+  token_ids: number[]
+  prompt_tokens: number[]
+  num_generated: number
+  elapsed_ms: number
+  tokens_per_sec: string
 }
 
 // ── SSE hook helpers ──────────────────────────────────────────────────────────

@@ -4,6 +4,48 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v1.5.0 — 2026-04-21
+
+**Phase 11A — small-LLM inference surface + Labeling UI.** Exposes the dormant LLaMA/GGUF inference code in rs-tensor (`llama.rs` + `gguf.rs` — ~1000 lines that were never surfaced at the Neuron layer) as MCP tools and a dashboard Playground. Also lands the long-deferred labeling UI that closes the active-learning visual loop from Phase 7A.
+
+### Added — LLM inference
+
+- **3 new MCP tools**: `llm_load(path)`, `llm_generate({prompt, token_ids?, max_tokens, temperature})`, `llm_inspect()`. Thin wrappers over rs-tensor's existing rmcp tools; Claude can now load a GGUF and generate text inline.
+- **HTTP wrappers**: `GET /api/llm/status`, `POST /api/llm/load`, `POST /api/llm/generate`.
+- **Dashboard `/playground` route** — load a GGUF by path, see the loaded config (dim / layers / heads / vocab / params in human-readable form), generate text with max_tokens + temperature sliders, view generated text + elapsed_ms + tok/s.
+- **`callText` variant in `mcp_client`** — tolerates non-JSON text responses (`llama_load` returns a plain info string, not JSON).
+- **Events**: `llm_loaded`, `llm_generated` with timing in payload.
+
+### Added — Labeling UI
+
+- **New `/tasks/:id/label` route** — one uncertain sample at a time. Shows features (first 12 dims), the model's current prediction + confidence, a button per class label with digit-key shortcuts, "Use prediction" (Enter), "Skip" (S), "Refresh queue" (R). Retrain banner appears after 10 labels.
+- **New API endpoints**:
+  - `GET /api/tasks/:id/label-queue?n=10` — reuses `suggest_samples` with a high confidence threshold to surface the model's most uncertain samples.
+  - `POST /api/tasks/:id/samples` — adds a labeled sample with validation.
+- **"Label" button added to TaskDetail header** (classification tasks only).
+- **Event**: `sample_labeled` with task + label in payload.
+
+### Honest scope limits
+
+- **No `llm_embed`** in this phase. rs-tensor's LLaMA doesn't expose hidden states and its tokenizer is naive whitespace-split (unknown words are silently skipped), so "text classification via embeddings" needs a proper BPE/SentencePiece tokenizer + a hidden-state export. That's Phase 11B.
+- **No fine-tuning, no streaming generation, only one model loaded at a time** — rs-tensor constraints.
+- **CPU-only inference** — expect 5-10 tok/s on a 1B model.
+
+### Non-changes
+
+- No training-path changes — bench Δ=+0.000.
+- No rs-tensor rebuild — the Rust tools were already there; this release just wires them into the Neuron MCP surface and the dashboard.
+- No schema migration.
+
+### Upgrade
+
+```bash
+ml-labs update
+ml-labs --version   # prints 1.5.0
+```
+
+---
+
 ## v1.4.0 — 2026-04-21
 
 **Phase 10.6 — cancellable `auto_train` + zombie reaper.** Fixes a real pain point where cancelling an `auto_train` tool call on the client left the server churning — coordinator kept making Claude API calls, child runs stranded at `status="running"` forever, no way to stop short of killing the whole MCP server.

@@ -78,6 +78,28 @@ export async function call<T = unknown>(
   args: Record<string, unknown>,
   opts: CallOpts = {},
 ): Promise<T> {
+  return callRaw(tool, args, opts, true) as Promise<T>
+}
+
+/**
+ * Like `call` but tolerates non-JSON text responses. Returns parsed JSON when
+ * the payload is valid JSON, otherwise returns `{ text }` with the raw string.
+ * Used for rs-tensor tools that return human-readable strings (e.g. llama_load).
+ */
+export async function callText(
+  tool: string,
+  args: Record<string, unknown>,
+  opts: CallOpts = {},
+): Promise<{ text: string } & Record<string, unknown>> {
+  return callRaw(tool, args, opts, false) as Promise<{ text: string } & Record<string, unknown>>
+}
+
+async function callRaw(
+  tool: string,
+  args: Record<string, unknown>,
+  opts: CallOpts,
+  strictJson: boolean,
+): Promise<unknown> {
   const timeout = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
   let lastErr: unknown
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -98,7 +120,14 @@ export async function call<T = unknown>(
       )
       const content = Array.isArray(result.content) ? result.content[0] : null
       if (!content || content.type !== "text") throw new Error(`Unexpected response from "${tool}"`)
-      return JSON.parse(content.text) as T
+      if (strictJson) return JSON.parse(content.text)
+      try {
+        const parsed = JSON.parse(content.text)
+        if (parsed && typeof parsed === "object") return parsed
+        return { text: String(parsed) }
+      } catch {
+        return { text: content.text }
+      }
     } catch (err) {
       lastErr = err
       if (attempt === 0 && isConnectionError(err)) {
@@ -214,6 +243,44 @@ export const rsTensor = {
 
   attentionForward: (flatQ: number[], flatK: number[], flatV: number[], seqLen: number, dK: number) =>
     call<Record<string, unknown>>("attention_forward", { q_data: flatQ, k_data: flatK, v_data: flatV, seq_len: seqLen, d_k: dK }),
+
+  // ── Phase 11A: small-LLM inference (rmcp surface already exists in rs-tensor) ──
+
+  llamaLoad: (path: string) =>
+    // rs-tensor's llama_load returns a human-readable string, not JSON — use the
+    // tolerant variant so we don't blow up on `JSON.parse`.
+    callText("llama_load", { path }, { timeoutMs: 600_000 }),
+
+  llamaInspect: () =>
+    call<{
+      config?: {
+        dim: number; n_layers: number; n_heads: number; n_kv_heads: number;
+        vocab_size: number; ffn_dim: number; head_dim: number; rms_eps: number;
+      };
+      vocab_size?: number;
+      vocab_sample?: string[];
+      total_weight_tensors?: number;
+    }>("llama_inspect", {}),
+
+  llamaGenerate: (args: {
+    prompt?: string
+    token_ids?: number[]
+    max_tokens: number
+    temperature: number
+  }) =>
+    call<{
+      text: string
+      token_ids: number[]
+      prompt_tokens: number[]
+      num_generated: number
+      elapsed_ms: number
+      tokens_per_sec: string
+    }>("llama_generate", {
+      ...(args.prompt !== undefined ? { prompt: args.prompt } : {}),
+      ...(args.token_ids !== undefined ? { token_ids: args.token_ids } : {}),
+      max_tokens: args.max_tokens,
+      temperature: args.temperature,
+    }, { timeoutMs: 600_000 }),
 
   // Restore a trained MLP from stored weights into rs-tensor memory.
   // Call initMlp first (creates structure with random weights), then overwrite

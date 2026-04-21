@@ -42,6 +42,9 @@ import * as dataAudit from "./data_audit"
 import * as autoPreflight from "./auto_preflight"
 import * as driftCheck from "./drift_check"
 import * as cancelAutoTrain from "./cancel_auto_train"
+import * as llmLoad from "./llm_load"
+import * as llmGenerate from "./llm_generate"
+import * as llmInspect from "./llm_inspect"
 
 type AnySchema = Record<string, z.ZodTypeAny>
 type ToolModule = {
@@ -63,6 +66,7 @@ const modules: ToolModule[] = [
   inspectData, getTrainingCurves, modelStats, batchPredict,
   cvTrain, calibrate, dataAudit, autoPreflight, driftCheck,
   cancelAutoTrain,
+  llmLoad, llmGenerate, llmInspect,
 ] as ToolModule[]
 
 export function listTools() {

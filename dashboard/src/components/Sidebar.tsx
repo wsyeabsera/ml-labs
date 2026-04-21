@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom"
-import { LayoutDashboard, Database, PlayCircle, BarChart3, Cpu, Zap, SlidersHorizontal, Upload, Activity, TrendingUp, Bot } from "lucide-react"
+import { LayoutDashboard, Database, PlayCircle, BarChart3, Cpu, Zap, SlidersHorizontal, Upload, Activity, TrendingUp, Bot, MessageSquare } from "lucide-react"
 import { clsx } from "clsx"
 import { ThemeToggle } from "./ThemeToggle"
 import { useQuery } from "@tanstack/react-query"
@@ -12,9 +12,10 @@ const nav = [
   { to: "/runs",     label: "Runs",      icon: BarChart3 },
   { to: "/train",    label: "Train",     icon: PlayCircle },
   { to: "/predict",  label: "Predict",   icon: Zap },
-  { to: "/sweep",    label: "Sweep",     icon: SlidersHorizontal },
-  { to: "/auto",     label: "Auto-runs", icon: Bot },
-  { to: "/upload",   label: "Upload",    icon: Upload },
+  { to: "/sweep",      label: "Sweep",      icon: SlidersHorizontal },
+  { to: "/auto",       label: "Auto-runs",  icon: Bot },
+  { to: "/playground", label: "Playground", icon: MessageSquare },
+  { to: "/upload",     label: "Upload",     icon: Upload },
   { to: "/drift",    label: "Drift",     icon: TrendingUp },
   { to: "/activity", label: "Activity",  icon: Activity },
 ]

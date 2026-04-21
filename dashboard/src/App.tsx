@@ -16,6 +16,8 @@ import { Activity } from "./routes/Activity"
 import { Drift } from "./routes/Drift"
 import { AutoRunsAll } from "./routes/AutoRunsAll"
 import { AutoRunDetail } from "./routes/AutoRunDetail"
+import { Playground } from "./routes/Playground"
+import { Label } from "./routes/Label"
 
 const qc = new QueryClient({
   defaultOptions: {
@@ -47,6 +49,8 @@ export function App() {
                 <Route path="/drift"                          element={<Drift />} />
                 <Route path="/auto"                           element={<AutoRunsAll />} />
                 <Route path="/auto/:id"                       element={<AutoRunDetail />} />
+                <Route path="/playground"                     element={<Playground />} />
+                <Route path="/tasks/:id/label"                element={<Label />} />
               </Routes>
             </div>
           </main>
