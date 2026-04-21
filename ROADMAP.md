@@ -247,6 +247,8 @@ Every phase has the same skeleton:
 
 ## Phase 4 — Calibration & Small-Model Wins
 
+**Status**: ✅ **Shipped as v0.10.0 on 2026-04-21.** See retro below.
+
 **Goal**: Predictions you can trust. Free accuracy from techniques that cost near zero.
 
 ### Scope
@@ -291,6 +293,26 @@ Every phase has the same skeleton:
 ### Ships as
 
 **v0.10.0**. User-visible: calibrated confidence scores + reliability diagram + better accuracy.
+
+### Retro (2026-04-21)
+
+**Shipped as planned, minus reliability diagram.** 133 tests pass in ~115 ms. All benches Δ=+0.000 (calibration doesn't affect argmax accuracy — only confidence scores).
+
+**What shipped**:
+- `calibrate(run_id)` tool via log-space grid search on held-out logits (120 points, T ∈ [~0.22, ~31.6]). Fast, deterministic, no new deps.
+- Auto-calibration in the controller after register_model. Every classification winner in the benchmark now has `calibration_temperature` stored (observed range: 0.22–0.26 — models are slightly underconfident, so T < 1 sharpens them).
+- SWA (opt-in) and label smoothing (opt-in + seed-variant default-on at α=0.1) in rs-tensor.
+- Predict / batch_predict apply T when set; return `calibrated: true|false` flag.
+
+**Observations on ECE**:
+- On iris/wine/breast-cancer the ECE deltas are small (runs are near-perfect accuracy already, so calibration mostly just recenters confidence).
+- digits T=0.253 with modern AdamW+ReLU+CE+label_smoothing → model is noticeably underconfident (smoothing contributes). Sharpening T fixes that.
+
+**Scope deltas from the plan**:
+- **Dashboard reliability diagram deferred** to Phase 7 (dashboard UX phase). The data (`run.calibration_temperature`, raw logits) is available now — visualization is a cheap follow-up when we touch the dashboard properly.
+- **`load_json` stratify parity** still deferred to Phase 2.5.
+
+**Time**: ~1.5 hours including rs-tensor rebuild.
 
 ---
 

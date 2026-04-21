@@ -4,6 +4,36 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v0.10.0 — 2026-04-21
+
+### Added — Phase 4 (calibration & small-model wins)
+Goal: predictions you can trust. Accuracy stayed the same; confidence scores became honest.
+
+- **`calibrate(run_id)` MCP tool** — post-hoc temperature scaling (Guo et al. 2017). Log-space grid search over T > 0 minimizing NLL on held-out val logits. Stores T on `runs.calibration_temperature`. Reports ECE before/after.
+- **Auto-calibration in `auto_train`** — controller automatically calls `calibrate` on the winning classification run after register_model. Runs with no val split or on regression tasks are skipped with an explicit log line.
+- **`predict` / `batch_predict` apply T** — divide logits by T before softmax when the registered model has a calibration temperature. Response includes `calibrated: true | false` so downstream consumers know whether to trust the confidence numbers.
+- **SWA (Stochastic Weight Averaging)** in rs-tensor `train_mlp` — new `swa` + `swa_start_epoch` params (default off, start at last 25% of epochs). Maintains running weight average, swaps in at end. Low cost, modest regularization.
+- **Label smoothing** in rs-tensor CE loss — new `label_smoothing: f32` param. Replaces one-hot target with `(1 - α) × onehot + α / K uniform`. Standard regularizer for CE training.
+- **Rules upgrade** — the seed-wave modern variant enables `label_smoothing=0.1` (classification) and `swa=true` (when `epochs ≥ 200`). Legacy SGD+tanh variant unchanged.
+
+### Tests
+- +9 unit tests (`calibration.test.ts`, updated `rules.test.ts`)
+- Total: 133 tests, ~115 ms
+- Backward-compat bench: Δ=+0.000 on all 5 datasets (calibration doesn't affect argmax; SWA + label smoothing off by default)
+
+### Baseline (v0.9 → v0.10)
+No accuracy changes — v0.10 adds honesty to confidence scores, not accuracy. Every classification winner now has `calibration_temperature` populated (range observed: T ∈ [0.22, 0.26]).
+
+### Upgrade
+
+```bash
+ml-labs update
+```
+
+Rebuilds rs-tensor (new SWA + label smoothing params). Existing calls without new flags produce identical results to v0.9.
+
+---
+
 ## v0.9.0 — 2026-04-21
 
 ### Added — Phase 3 (modern training loop)
