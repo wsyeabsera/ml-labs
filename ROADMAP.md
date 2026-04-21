@@ -583,6 +583,30 @@ Our 5-dataset bench hits the target in wave 1 thanks to the Phase 3 modern seed 
 
 ---
 
+## Phase 10A (new) — Surface the reasoning we already produce
+
+**Status**: ✅ **Shipped as v1.2.0 on 2026-04-21.**
+
+**Goal**: Make every decision the orchestrator makes *legible* to a junior ML engineer by rendering structured rationale in the UI. Nothing new computed — just stop throwing away what was already there.
+
+**What shipped**:
+- **`RuleExplanation` type** on every rule match in `core/auto/rules.ts` (seed / seed_modern / seed_balanced / A–E / fallback). Each carries `name`, `title`, `why` (plain language), `evidence` (concrete numeric facts from this wave). Legacy `rules_fired: string[]` kept for rule-effectiveness stats compat.
+- **Enriched plans** from all sources: Claude planner, tournament (merges explanations across aggressive/conservative/exploratory), TPE adapter, warm-start path. Every `sweep_wave_N_plan` decision_log entry now carries the full `rule_explanations[]` in its payload.
+- **Structured winner reasoning**: `winner_selection` payload now includes `reasoning.why_winner: string[]` + `reasoning.runners_up: Array<{run_id, metric, score, reason_not_winner}>`. Every losing run has a specific reason (lower score / overfitting / failed / etc.) instead of just a scalar.
+- **Diagnose entries**: the `evidence[]` and `recommendations[]` fields already in the payload from Phase 6.5 are now surfaced.
+- **Dashboard "why" cards** on `/auto/:id` timeline: every entry with structured payload gets an inline `why` toggle; winner_selection auto-expands. Clean rendering (title + body + evidence bullets) — no free-form text, so every card looks consistent.
+
+**Scope deltas**:
+- **RunDetail "set because" provenance badges deferred**. Would need an auto_run_id FK on runs or fuzzy matching — not the main thing. Users land on /auto/:id anyway for the full story.
+- **Glossary tooltips deferred to Phase 10B**.
+- **Live Claude commentary deferred to Phase 10C** (opt-in LLM cost; wait to see if 10A+10B is enough).
+
+**Verification**: dashboard `tsc -b && vite build` clean, neuron `tsc --noEmit` clean, `bench:fast` accuracy=1.000 (Δ=+0.000 on metrics — no training-path changes).
+
+**Time**: ~2 hours.
+
+---
+
 ## Phase 8.5 (new) — Production story follow-through
 
 **Status**: ✅ **Shipped as v1.1.0 on 2026-04-21.**

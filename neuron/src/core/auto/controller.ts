@@ -157,7 +157,23 @@ export async function runController(args: ControllerArgs): Promise<ControllerRes
           { ...base, lr: Math.max(0.001, Math.min(0.1, baseLr * 0.5)) },
           { ...base, lr: Math.max(0.001, Math.min(0.1, baseLr * 2)) },
         ]
-        plan = { configs, rationale: `warm-start from prior ${prior.metric_name}=${prior.best_metric.toFixed(3)} ± lr variants`, rules_fired: ["warm_start"], source: "rules" as const }
+        plan = {
+          configs,
+          rationale: `warm-start from prior ${prior.metric_name}=${prior.best_metric.toFixed(3)} ± lr variants`,
+          rules_fired: ["warm_start"],
+          rule_explanations: [
+            {
+              name: "warm_start",
+              title: "Warm-start from a similar past task",
+              why: "We've seen a task with this same shape before (same N/K/D bucket + imbalance). Its winning config is usually a strong starting point, so we try it plus two LR variants at 0.5× and 2×.",
+              evidence: [
+                `prior best: ${prior.metric_name}=${prior.best_metric.toFixed(3)}`,
+                `fingerprint: ${fingerprint}`,
+              ],
+            },
+          ],
+          source: "rules" as const,
+        }
       } else {
         plan = seedPlan(bundle)
       }
@@ -192,6 +208,7 @@ export async function runController(args: ControllerArgs): Promise<ControllerRes
       source: plan.source,
       configs: plan.configs,
       rules_fired: plan.rules_fired,
+      rule_explanations: plan.rule_explanations ?? [],
     })
 
     // Rule-effectiveness: every rule that fired this wave gets a fired_count bump.
@@ -457,11 +474,61 @@ export async function runController(args: ControllerArgs): Promise<ControllerRes
 
   const winnerMetric = winner ? score(winner) : null
 
+  // Structured reasoning for the "why this run won" UI.
+  const why_winner: string[] = []
+  const runners_up: Array<{ run_id: number; metric: number | null; score: number | null; reason_not_winner: string }> = []
+
+  if (winner != null) {
+    why_winner.push(
+      isRegression
+        ? `R² = ${winner.metric?.toFixed(3) ?? "n/a"} (highest across ${allRunSignals.length} runs)`
+        : `val accuracy = ${winner.val_accuracy?.toFixed(3) ?? winner.accuracy?.toFixed(3) ?? "n/a"} (best across ${allRunSignals.length} runs)`,
+    )
+    if (!isOverfit) {
+      why_winner.push("train/val gap is healthy — not overfitting")
+    } else {
+      why_winner.push(
+        `note: train/val gap is ${((winner.accuracy ?? 0) - (winner.val_accuracy ?? 0)).toFixed(3)} — still the best score, but the gap suggests this run is overfitting`,
+      )
+    }
+    if (winner.val_accuracy != null || isRegression) {
+      why_winner.push("score is based on held-out data, so confidence is high")
+    } else {
+      why_winner.push("no validation split was available, so score is based on training data — confidence is low")
+    }
+
+    // Runners-up: every other run, sorted by score desc, with a short reason why each lost.
+    const others = allRunSignals
+      .filter((r) => r.run_id !== winner.run_id)
+      .map((r) => ({ r, s: score(r) }))
+      .sort((a, b) => b.s - a.s)
+    for (const { r, s } of others.slice(0, 5)) {
+      const gap = (winnerMetric ?? 0) - s
+      let reason = `score ${s.toFixed(3)} vs winner ${winnerMetric?.toFixed(3) ?? "n/a"} (gap ${gap.toFixed(3)})`
+      if (r.accuracy != null && r.val_accuracy != null && (r.accuracy - r.val_accuracy) > 0.15) {
+        reason = `overfitting (train/val gap ${(r.accuracy - r.val_accuracy).toFixed(3)}) — penalty applied`
+      } else if (r.metric == null) {
+        reason = "run failed to produce a metric"
+      } else if (r.severity === "critical") {
+        reason = `metric ${r.metric_name}=${r.metric.toFixed(3)} far below target`
+      }
+      runners_up.push({ run_id: r.run_id, metric: r.metric, score: s, reason_not_winner: reason })
+    }
+  } else {
+    why_winner.push("no run produced a completed metric — every sweep config failed or was cancelled")
+  }
+
   log(args.auto_run_id, "winner_selection",
     winner
       ? `run ${winner.run_id} score=${winnerMetric?.toFixed(3)} (raw ${metricName}=${winner.metric?.toFixed(3)}, overfit=${isOverfit})`
       : "no completed runs",
-    { winner_run_id: winner?.run_id ?? null, score: winnerMetric, is_overfit: isOverfit })
+    {
+      winner_run_id: winner?.run_id ?? null,
+      score: winnerMetric,
+      is_overfit: isOverfit,
+      confidence,
+      reasoning: { why_winner, runners_up },
+    })
 
   // Rule-effectiveness: credit the winner's rules with a produced_winner bump.
   if (winner?.run_id != null) {

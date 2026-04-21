@@ -67,6 +67,19 @@ export function tpePlan(
     configs,
     rationale: `TPE with ${observations.length} prior observations; inheriting arch/activation/loss from best historical run`,
     rules_fired: ["tpe"],
+    rule_explanations: [
+      {
+        name: "tpe",
+        title: "Tree-structured Parzen Estimator (TPE)",
+        why: "TPE is a Bayesian optimizer that models the distributions of good vs bad hyperparameter values from past runs, then samples new configs that are more likely to be good. It takes over once we have enough history for its model to be meaningful.",
+        evidence: [
+          `${observations.length} prior observations feeding the model`,
+          bestPrior
+            ? `inheriting arch/activation/loss from prior best (${bestPrior.metric_name}=${bestPrior.metric?.toFixed(3) ?? "?"})`
+            : "no prior best — starting cold",
+        ],
+      },
+    ],
     source: "tpe",
   }
 }

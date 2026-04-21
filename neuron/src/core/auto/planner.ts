@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path"
 import type { SweepConfig } from "../sweep/configs"
 import type { SignalBundle } from "./signals"
 import type { AutoLogEntry } from "../db/auto"
-import { refineFromSignals, type RefinementPlan } from "./rules"
+import { refineFromSignals, type RefinementPlan, type RuleExplanation } from "./rules"
 
 const SERVER_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "../../server.ts")
 
@@ -21,6 +21,7 @@ export interface PlannerPlan {
   configs: SweepConfig[]
   rationale: string
   rules_fired: string[]
+  rule_explanations: RuleExplanation[]
   source: "planner" | "rules" | "hybrid" | "tournament" | "tpe" | "tpe+critic"
   strategy?: PlannerStrategy
 }
@@ -143,6 +144,14 @@ export async function runPlanner(opts: {
       configs: safe,
       rationale: parsed.rationale ?? "(planner)",
       rules_fired: parsed.rules_fired ?? [],
+      rule_explanations: [
+        {
+          name: "planner_" + strategy,
+          title: `Claude planner (${strategy})`,
+          why: parsed.rationale ?? "Claude proposed these configs after reading the signal bundle and recent decision log.",
+          evidence: (parsed.rules_fired ?? []).map((r) => `tag: ${r}`),
+        },
+      ],
       source: "planner",
       strategy,
     }
@@ -189,10 +198,18 @@ export async function runTournament(opts: {
   // If all planners failed, fall back to rules
   if (merged.length === 0) return { ...opts.fallback, source: "rules" }
 
+  const mergedExplanations: RuleExplanation[] = plans.flatMap((p) =>
+    (p.rule_explanations ?? []).map((e) => ({
+      ...e,
+      title: `[${p.strategy ?? "?"}] ${e.title}`,
+    })),
+  )
+
   return {
     configs: merged,
     rationale: rationaleParts.join(" | "),
     rules_fired: firedAll,
+    rule_explanations: mergedExplanations,
     source: "tournament",
   }
 }

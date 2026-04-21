@@ -1,12 +1,56 @@
+import { useState } from "react"
 import { useParams, Link } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
-import { motion } from "framer-motion"
+import { motion, AnimatePresence } from "framer-motion"
 import {
   ArrowLeft, Bot, CheckCircle2, AlertTriangle, Clock, Target, Trophy,
-  Layers, ChevronRight,
+  Layers, ChevronRight, ChevronDown, Lightbulb,
 } from "lucide-react"
 import { api, type ApiAutoLogEntry } from "../lib/api"
 import { clsx } from "clsx"
+
+// ── Structured payload shapes emitted by the Phase 10A controller ─────────────
+
+interface RuleExplanation {
+  name: string
+  title: string
+  why: string
+  evidence: string[]
+}
+
+interface WinnerReasoning {
+  why_winner?: string[]
+  runners_up?: Array<{
+    run_id: number
+    metric: number | null
+    score: number | null
+    reason_not_winner: string
+  }>
+}
+
+interface StructuredPayload {
+  rule_explanations?: RuleExplanation[]
+  evidence?: string[]
+  recommendations?: string[]
+  primary_cause?: string
+  reasoning?: WinnerReasoning
+  winner_run_id?: number | null
+  confidence?: string
+}
+
+function extractStructured(payload: unknown): StructuredPayload | null {
+  if (!payload || typeof payload !== "object") return null
+  const p = payload as StructuredPayload
+  if (
+    (!p.rule_explanations || p.rule_explanations.length === 0) &&
+    (!p.evidence || p.evidence.length === 0) &&
+    (!p.recommendations || p.recommendations.length === 0) &&
+    !p.reasoning
+  ) {
+    return null
+  }
+  return p
+}
 
 function pct(v: number | null | undefined) {
   return v != null ? `${(v * 100).toFixed(1)}%` : "—"
@@ -42,40 +86,176 @@ function stageIcon(stage: string): React.ReactNode {
   return STAGE_ICON[stage] ?? <ChevronRight size={12} />
 }
 
+// ── Explanation card: renders structured reasoning from payloads ──────────────
+
+function RuleExplanationCard({ rule }: { rule: RuleExplanation }) {
+  return (
+    <div className="rounded-md bg-[var(--surface-2)] border border-[var(--border-subtle)] p-3">
+      <div className="flex items-start gap-2">
+        <Lightbulb size={12} className="text-[var(--accent-text)] flex-shrink-0 mt-0.5" />
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-medium text-[var(--text-1)]">{rule.title}</p>
+          <p className="text-xs text-[var(--text-2)] mt-1 leading-relaxed">{rule.why}</p>
+          {rule.evidence.length > 0 && (
+            <ul className="mt-2 space-y-0.5">
+              {rule.evidence.map((e, i) => (
+                <li key={i} className="text-2xs text-[var(--text-3)] font-mono leading-relaxed">
+                  · {e}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ExplanationPanel({ payload }: { payload: StructuredPayload }) {
+  return (
+    <div className="mt-2 space-y-2">
+      {payload.rule_explanations && payload.rule_explanations.length > 0 && (
+        <div className="space-y-2">
+          {payload.rule_explanations.map((rule, i) => <RuleExplanationCard key={i} rule={rule} />)}
+        </div>
+      )}
+
+      {payload.primary_cause && (
+        <div className="rounded-md bg-[var(--surface-2)] border border-[var(--border-subtle)] p-3">
+          <p className="text-xs font-medium text-[var(--text-1)] mb-1">
+            Primary cause: <span className="font-mono text-[var(--accent-text)]">{payload.primary_cause}</span>
+          </p>
+          {payload.evidence && payload.evidence.length > 0 && (
+            <>
+              <p className="text-2xs text-[var(--text-3)] mt-2 mb-1">Evidence</p>
+              <ul className="space-y-0.5">
+                {payload.evidence.map((e, i) => (
+                  <li key={i} className="text-2xs text-[var(--text-2)] font-mono leading-relaxed">· {e}</li>
+                ))}
+              </ul>
+            </>
+          )}
+          {payload.recommendations && payload.recommendations.length > 0 && (
+            <>
+              <p className="text-2xs text-[var(--text-3)] mt-2 mb-1">Recommendations</p>
+              <ul className="space-y-0.5">
+                {payload.recommendations.map((r, i) => (
+                  <li key={i} className="text-2xs text-[var(--text-2)] leading-relaxed">· {r}</li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+      )}
+
+      {payload.reasoning && (
+        <div className="rounded-md bg-[var(--surface-2)] border border-[var(--border-subtle)] p-3">
+          {payload.reasoning.why_winner && payload.reasoning.why_winner.length > 0 && (
+            <>
+              <p className="text-xs font-medium text-[var(--text-1)] mb-1.5 flex items-center gap-1.5">
+                <Trophy size={11} className="text-[var(--success)]" />
+                Why this run won
+              </p>
+              <ul className="space-y-0.5">
+                {payload.reasoning.why_winner.map((w, i) => (
+                  <li key={i} className="text-2xs text-[var(--text-2)] leading-relaxed">· {w}</li>
+                ))}
+              </ul>
+            </>
+          )}
+          {payload.reasoning.runners_up && payload.reasoning.runners_up.length > 0 && (
+            <>
+              <p className="text-2xs text-[var(--text-3)] mt-3 mb-1.5">
+                Runners-up ({payload.reasoning.runners_up.length})
+              </p>
+              <div className="space-y-1">
+                {payload.reasoning.runners_up.map((r, i) => (
+                  <div key={i} className="flex items-baseline gap-2 text-2xs">
+                    <span className="font-mono text-[var(--text-2)] flex-shrink-0">#{r.run_id}</span>
+                    <span className="text-[var(--text-3)] font-mono flex-shrink-0">
+                      {r.score != null ? r.score.toFixed(3) : "—"}
+                    </span>
+                    <span className="text-[var(--text-3)] truncate">{r.reason_not_winner}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TimelineEntry({ entry, i }: { entry: ApiAutoLogEntry; i: number }) {
+  const structured = extractStructured(entry.payload)
+  const [expanded, setExpanded] = useState(
+    // Auto-expand winner_selection — it's the most important decision.
+    entry.stage === "winner_selection",
+  )
+
+  return (
+    <motion.li
+      initial={{ opacity: 0, x: -4 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ delay: Math.min(i * 0.02, 0.3) }}
+      className="flex items-start gap-2.5 text-xs"
+    >
+      <span className="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center bg-[var(--surface-2)] text-[var(--text-3)] mt-0.5">
+        {stageIcon(entry.stage)}
+      </span>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-baseline gap-2">
+          <span className="font-mono text-[var(--text-2)] uppercase tracking-wider text-2xs">{entry.stage}</span>
+          <span className="text-2xs text-[var(--text-3)] font-mono">{new Date(entry.ts).toLocaleTimeString()}</span>
+          {structured && (
+            <button
+              type="button"
+              onClick={() => setExpanded((e) => !e)}
+              className="ml-auto inline-flex items-center gap-1 text-2xs text-[var(--accent-text)] hover:underline"
+            >
+              {expanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+              why
+            </button>
+          )}
+        </div>
+        <p className="text-[var(--text-1)] mt-0.5 leading-snug">{entry.note}</p>
+
+        <AnimatePresence initial={false}>
+          {expanded && structured && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.15 }}
+              className="overflow-hidden"
+            >
+              <ExplanationPanel payload={structured} />
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Keep the raw-payload escape hatch for debugging. */}
+        {!structured && entry.payload != null && typeof entry.payload === "object" && Object.keys(entry.payload as object).length > 0 && (
+          <details className="mt-1">
+            <summary className="text-2xs text-[var(--text-3)] cursor-pointer hover:text-[var(--text-2)]">payload</summary>
+            <pre className="mt-1 p-2 rounded bg-[var(--surface-2)] text-2xs text-[var(--text-2)] font-mono overflow-x-auto whitespace-pre-wrap break-all">
+              {JSON.stringify(entry.payload, null, 2)}
+            </pre>
+          </details>
+        )}
+      </div>
+    </motion.li>
+  )
+}
+
 function Timeline({ log }: { log: ApiAutoLogEntry[] }) {
   if (log.length === 0) {
     return <p className="text-xs text-[var(--text-3)]">No decisions logged yet.</p>
   }
   return (
     <ol className="space-y-2">
-      {log.map((e, i) => (
-        <motion.li
-          key={i}
-          initial={{ opacity: 0, x: -4 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: Math.min(i * 0.02, 0.3) }}
-          className="flex items-start gap-2.5 text-xs"
-        >
-          <span className="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center bg-[var(--surface-2)] text-[var(--text-3)] mt-0.5">
-            {stageIcon(e.stage)}
-          </span>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-baseline gap-2">
-              <span className="font-mono text-[var(--text-2)] uppercase tracking-wider text-2xs">{e.stage}</span>
-              <span className="text-2xs text-[var(--text-3)] font-mono">{new Date(e.ts).toLocaleTimeString()}</span>
-            </div>
-            <p className="text-[var(--text-1)] mt-0.5 leading-snug">{e.note}</p>
-            {e.payload != null && typeof e.payload === "object" && Object.keys(e.payload as object).length > 0 && (
-              <details className="mt-1">
-                <summary className="text-2xs text-[var(--text-3)] cursor-pointer hover:text-[var(--text-2)]">payload</summary>
-                <pre className="mt-1 p-2 rounded bg-[var(--surface-2)] text-2xs text-[var(--text-2)] font-mono overflow-x-auto whitespace-pre-wrap break-all">
-                  {JSON.stringify(e.payload, null, 2)}
-                </pre>
-              </details>
-            )}
-          </div>
-        </motion.li>
-      ))}
+      {log.map((e, i) => <TimelineEntry key={i} entry={e} i={i} />)}
     </ol>
   )
 }

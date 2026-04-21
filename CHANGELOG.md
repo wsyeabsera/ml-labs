@@ -4,6 +4,52 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v1.2.0 — 2026-04-21
+
+**Phase 10A — surface the reasoning we already produce.** The coordinator / rules engine / diagnoser were always generating *why* signals at every decision point, but by the time they reached the dashboard they'd been compressed into one-liners like `"B1:overfit→shorter + shallower"`. You saw *what* happened, not *why*. This release plumbs the reasoning through as structured data and renders it in a learnable UI.
+
+Nothing new to compute — the "why" was already there.
+
+### Added
+
+- **`RuleExplanation` type** (`core/auto/rules.ts`):
+  ```ts
+  { name: string; title: string; why: string; evidence: string[] }
+  ```
+  Emitted alongside the legacy `rules_fired: string[]` (kept for stats/fingerprint compat). Every rule match now carries a plain-language headline, a 1-2 sentence explanation, and the concrete numeric facts that triggered it on this specific wave.
+- **Rule explanations for every source**:
+  - All rules in `refineFromSignals` (seed / seed_modern / seed_balanced, rules A–E, fallback).
+  - Warm-start path in `controller.ts` — explains why the prior-task winner was tried.
+  - Claude planner — carries the planner's rationale as a single explanation.
+  - Tournament mode — merges explanations from all three strategies.
+  - TPE adapter — explains what TPE is and cites the observation count.
+- **Structured winner reasoning** (`winner_selection` decision log entry):
+  - `reasoning.why_winner: string[]` — plain-language points on why this run was picked.
+  - `reasoning.runners_up: Array<{run_id, metric, score, reason_not_winner}>` — every other run, sorted by score, with a specific reason it lost (lower score, overfitting, failed, etc.).
+  - `confidence: "high" | "low"` based on val split + overfit status.
+- **Diagnose entries** already carried `evidence[]` + `recommendations[]` in their payload from Phase 6.5 — now they actually render in the UI instead of sitting in raw JSON.
+- **Dashboard: expandable "why" cards** in `/auto/:id` timeline:
+  - Every decision_log entry with structured reasoning gets an inline `why` toggle.
+  - `winner_selection` auto-expands (it's the most important decision).
+  - Rule explanations render as: title (bold) + why (body) + evidence (monospace bullets).
+  - Winner reasoning renders as: "Why this run won" list + runners-up with reason.
+  - Diagnose renders as: primary cause + evidence + recommendations.
+  - Entries with no structured payload keep the existing raw-JSON `payload` expander as an escape hatch.
+
+### Non-changes
+
+- No schema migration — decision_log payload is JSON, additive.
+- No training-path changes — bench accuracy Δ=+0.000.
+- No new MCP tools, no rs-tensor rebuild.
+
+### Upgrade
+
+```bash
+ml-labs update
+```
+
+---
+
 ## v1.1.1 — 2026-04-21
 
 **Fixes the "every refresh replays every notification" bug.**
