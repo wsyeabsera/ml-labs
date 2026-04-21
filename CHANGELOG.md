@@ -4,6 +4,39 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v1.6.0 — 2026-04-21
+
+**Phase 11.5 — intelligence fixes.** A gap analysis of how Neuron uses Claude surfaced that `suggest_hyperparams` was still telling Claude "SGD only, tanh only, no Adam, no mini-batches" — constraints that have been untrue since Phase 3 (v0.9.0, six phases ago). Claude was picking hyperparameters blindfolded. Four more gaps (planner emitting one-line rationale, no system prompts on sub-agents, no hardware context, no loss curve to diagnoser) were small individually but compounded into weaker intelligence than the platform deserved. This release fixes all five.
+
+### Fixed — prompt accuracy
+
+- **`suggest_hyperparams` rewritten.** Prompt now documents the full post-Phase-3 lever set: AdamW/Adam/SGD, all four activations (tanh/relu/gelu/leaky_relu), three LR schedules (constant/cosine/linear_warmup), loss (cross_entropy/mse), batch_size, weight_decay, grad_clip, early_stop_patience, label_smoothing, SWA. Output schema expanded from `{lr, epochs, head_arch, class_weights}` to include all of the above with a `reasoning` field. Deterministic fallback modernized: tiny datasets (N<50) still get SGD+tanh for variance reasons, everything else gets the modern default (AdamW + ReLU + cosine + cross-entropy + weight_decay=0.01 + SWA when epochs≥200).
+
+### Fixed — planner reasoning fidelity
+
+- **Planner emits structured `rule_explanations[]`.** Previously the Claude planner produced a single-line `rationale` which we wrapped in a placeholder `RuleExplanation` titled "Claude planner (balanced)". Now the prompt requests `rule_explanations: [{name, title, why, evidence[]}]` matching the Phase 10A schema. The parser accepts the structured form when well-formed and falls back to the placeholder wrapper when Claude returns the old shape — no regression risk.
+
+### Added — better context
+
+- **System prompts on every Agent SDK sub-agent.** `planner.ts` and `diagnoser.ts` now pass `systemPrompt` to `query()`. Each system prompt documents the exact output contract, relevant hardware context, and reasoning hints. Tighter outputs at zero architectural cost.
+- **Hardware/perf context** in planner + diagnoser system prompts: "CPU-only. Avoid epochs × N > 10M. batch_size 8-128 typical. Keep models under ~1M params." Claude no longer gets to suggest 10k epochs on a 100k-sample dataset without knowing we'll rebel.
+- **Loss curve passed to diagnoser.** `runDiagnoser` now receives the best run's `lossHistory`, downsamples to ~50 points via stride, and includes it in the prompt. The diagnoser's system prompt explains how to read curve shape (smooth convergence / plateau / spike / oscillation / divergence) and map each to a likely cause (`lr_too_high`, `lr_too_low`, etc.). Added `lr_too_high`, `lr_too_low`, and `optimizer_mismatch` to the diagnosis cause vocabulary.
+
+### Non-changes
+
+- No new MCP tools. No training-path changes. No rs-tensor rebuild.
+- Bench Δ=+0.000 — the rules-only benchmark path bypasses all Claude calls via `NEURON_PLANNER=rules` and is unaffected.
+- `auto_train` orchestration, `cancel_auto_train`, shadow, drift, calibrate, LLM tools all unchanged.
+
+### Upgrade
+
+```bash
+ml-labs update
+ml-labs --version   # prints 1.6.0
+```
+
+---
+
 ## v1.5.1 — 2026-04-21
 
 **Skills refresh.** The Claude skill files (`neuron`, `neuron-ui`) and the per-project `CLAUDE.md` template hadn't been updated since v0.9-era. We'd shipped ~12 new MCP tools (`calibrate`, `drift_check`, `cv_train`, `data_audit`, `auto_preflight`, `inspect_data`, `get_training_curves`, `model_stats`, `log_auto_note`, `cancel_auto_train`, `llm_load`, `llm_generate`, `llm_inspect`) and changed behavior on many more — but Claude in a freshly `ml-labs init`'d project would still read a 30-tool description missing half of them.

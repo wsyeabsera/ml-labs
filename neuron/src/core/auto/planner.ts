@@ -17,6 +17,32 @@ const STRATEGY_INSTRUCTIONS: Record<PlannerStrategy, string> = {
   exploratory: "Prefer diversity — include atypical configs: unusual LR, mixed depths, class_weights even when imbalance is mild, deliberately different epoch counts. Cover more of the search space.",
 }
 
+const PLANNER_SYSTEM_PROMPT = `You are a hyperparameter wave planner for an MLP trainer backed by rs-tensor (CPU-only).
+
+OUTPUT CONTRACT — strict JSON, nothing else:
+{
+  "configs": [<2-4 config objects>],
+  "rationale": "<one short sentence summary>",
+  "rules_fired": ["<tag1>", "<tag2>"],
+  "rule_explanations": [
+    {
+      "name": "<stable snake_case id>",
+      "title": "<short human headline>",
+      "why": "<1-2 sentences in plain language — the reasoning behind this choice>",
+      "evidence": ["<concrete numeric fact>", "<another>"]
+    }
+  ]
+}
+
+Each config is a JSON object with optional keys: lr (0.001-0.1), epochs (100-3000), head_arch (number[] starting with D and ending with K), optimizer ("sgd" | "adam" | "adamw"), activation ("tanh" | "relu" | "gelu" | "leaky_relu"), lr_schedule ("constant" | "cosine" | "linear_warmup"), loss ("cross_entropy" | "mse"), batch_size (8-128 | omit for full-batch), weight_decay (0.0-0.1), grad_clip, early_stop_patience, label_smoothing (classification only), swa (boolean), class_weights ("balanced" — classification only).
+
+HARDWARE CONSTRAINTS:
+- CPU-only. Avoid epochs × N > 10M (too slow to iterate on).
+- batch_size 8-128 typical; use full-batch (omit) only when N < 50.
+- Keep models under ~1M parameters.
+
+Think briefly, then commit. Reason per rule_explanation with concrete evidence.`
+
 export interface PlannerPlan {
   configs: SweepConfig[]
   rationale: string
@@ -37,11 +63,8 @@ function buildPlannerPrompt(
   const ruleStatsSection = ruleStatsText
     ? `\nRULE HISTORY (on tasks with this fingerprint):\n${ruleStatsText}\n`
     : ""
-  return `You are the wave planner for the Neuron auto-trainer (strategy: ${strategy}). You only decide what hyperparameter configs to try next.
-
-STRATEGY DIRECTIVE: ${STRATEGY_INSTRUCTIONS[strategy]}
+  return `Strategy: ${strategy} — ${STRATEGY_INSTRUCTIONS[strategy]}
 ${ruleStatsSection}
-
 TASK: "${bundle.task_id}" (kind=${bundle.task_kind})
 TARGET: ${bundle.target.metric} ≥ ${bundle.target.value}
 BUDGET: ${bundle.history.budget_used_s}s used of ${bundle.history.budget_s}s, wave ${bundle.history.waves_done + 1}
@@ -64,18 +87,11 @@ ${bundle.current_wave.map((r) => `- run ${r.run_id}: ${r.metric_name}=${r.metric
 RECENT DECISION LOG:
 ${recent || "(empty)"}
 
-DETERMINISTIC RULE-BASED PROPOSAL (use as lower bound for quality):
+DETERMINISTIC RULE-BASED PROPOSAL (quality lower bound):
 ${JSON.stringify(fallback.configs, null, 2)}
 rules fired: ${fallback.rules_fired.join(", ")}
 
-YOUR JOB: propose 2–4 hyperparameter configs for the next wave.
-
-CONSTRAINTS:
-- Each config is a JSON object with optional: lr (0.001–0.1), epochs (100–3000), head_arch (number[] starting with D=${bundle.data.d} and ending with K=${bundle.data.k}), class_weights ("balanced" — classification only), weight_decay (0.0–0.1, L2 regularizer), early_stop_patience (int, epochs to wait for improvement before stopping)
-- You MUST return STRICTLY this JSON and nothing else:
-  {"configs":[...],"rationale":"<one short sentence>","rules_fired":["name1","name2"]}
-- Prefer building on the rule-based proposal if the signals are clear-cut. Deviate when the decision log suggests a pattern worth exploring.
-- Max 4 configs.
+Propose 2–4 hyperparameter configs for the next wave. Build on the rule-based proposal when signals are clear-cut; deviate when the decision log or prior-best suggests a pattern worth exploring. Return the strict JSON contract from your system prompt, including rule_explanations[] with concrete evidence per choice.
 `
 }
 
@@ -106,6 +122,7 @@ export async function runPlanner(opts: {
         disallowedTools: ["Bash", "Read", "Edit", "Write", "Glob", "Grep"],
         maxTurns: 2,
         persistSession: false,
+        systemPrompt: PLANNER_SYSTEM_PROMPT,
         mcpServers: {
           neuron: {
             type: "stdio" as const,
@@ -131,7 +148,12 @@ export async function runPlanner(opts: {
   if (!match) return { ...opts.fallback, source: "rules" }
 
   try {
-    const parsed = JSON.parse(match[0]) as { configs: SweepConfig[]; rationale?: string; rules_fired?: string[] }
+    const parsed = JSON.parse(match[0]) as {
+      configs: SweepConfig[]
+      rationale?: string
+      rules_fired?: string[]
+      rule_explanations?: Array<Partial<RuleExplanation>>
+    }
     const configs = (parsed.configs ?? []).slice(0, 4).filter((c): c is SweepConfig => typeof c === "object" && c !== null)
     if (configs.length === 0) return { ...opts.fallback, source: "rules" }
     // Clamp lr into safe range
@@ -140,18 +162,33 @@ export async function runPlanner(opts: {
       lr: c.lr !== undefined ? Math.max(0.001, Math.min(0.1, c.lr)) : undefined,
       epochs: c.epochs !== undefined ? Math.max(50, Math.min(3000, Math.round(c.epochs))) : undefined,
     }))
+
+    // Accept Claude-emitted rule_explanations when well-formed. Otherwise fall back
+    // to a single synthetic card from the one-line rationale — still better than nothing.
+    const rule_explanations: RuleExplanation[] = Array.isArray(parsed.rule_explanations)
+      && parsed.rule_explanations.length > 0
+      ? parsed.rule_explanations
+          .filter((e) => e && typeof e.title === "string" && typeof e.why === "string")
+          .map((e) => ({
+            name: typeof e.name === "string" ? e.name : `planner_${strategy}`,
+            title: e.title as string,
+            why: e.why as string,
+            evidence: Array.isArray(e.evidence) ? e.evidence.filter((x): x is string => typeof x === "string") : [],
+          }))
+      : [
+          {
+            name: "planner_" + strategy,
+            title: `Claude planner (${strategy})`,
+            why: parsed.rationale ?? "Claude proposed these configs after reading the signal bundle and recent decision log.",
+            evidence: (parsed.rules_fired ?? []).map((r) => `tag: ${r}`),
+          },
+        ]
+
     return {
       configs: safe,
       rationale: parsed.rationale ?? "(planner)",
       rules_fired: parsed.rules_fired ?? [],
-      rule_explanations: [
-        {
-          name: "planner_" + strategy,
-          title: `Claude planner (${strategy})`,
-          why: parsed.rationale ?? "Claude proposed these configs after reading the signal bundle and recent decision log.",
-          evidence: (parsed.rules_fired ?? []).map((r) => `tag: ${r}`),
-        },
-      ],
+      rule_explanations,
       source: "planner",
       strategy,
     }

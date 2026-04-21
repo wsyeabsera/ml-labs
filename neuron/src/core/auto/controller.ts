@@ -351,6 +351,7 @@ async function runControllerBody(
         reflection: getAutoRun(args.auto_run_id)?.decision_log ?? [],
         confusionMatrix: fullRun?.confusionMatrix ?? null,
         labels: getTask(args.task_id)?.labels ?? null,
+        lossHistory: fullRun?.lossHistory ?? null,
         signal: ac.signal,
       })
       log(args.auto_run_id, "diagnose",

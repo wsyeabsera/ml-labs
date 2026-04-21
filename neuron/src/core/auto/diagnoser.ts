@@ -6,6 +6,29 @@ import type { AutoLogEntry } from "../db/auto"
 
 const SERVER_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "../../server.ts")
 
+const DIAGNOSER_SYSTEM_PROMPT = `You are a root-cause diagnoser for ML training runs on the Neuron platform.
+
+OUTPUT CONTRACT — strict JSON, nothing else:
+{
+  "primary_cause": "overfitting" | "underfitting" | "truncated_training" | "class_imbalance" | "label_noise" | "feature_issue" | "lr_too_high" | "lr_too_low" | "optimizer_mismatch" | "other",
+  "evidence": ["<concrete numeric observation>", "..."],
+  "recommendations": ["<specific next action>", "..."],
+  "confidence": "high" | "low"
+}
+
+How to read the loss-curve sample (when provided):
+- Smooth monotonic decrease → normal training, check if "still_improving" is true
+- Plateau at moderate loss → likely lr_too_low or underfitting
+- Spike or jump to inf/NaN mid-training → lr_too_high or grad_clip needed
+- Sawtooth / oscillation → lr_too_high or batch_size too small
+- Gap between early convergence and persistent final value → saddle point
+
+HARDWARE CONTEXT:
+- CPU-only rs-tensor backend. Avoid recommendations requiring > 1M params.
+- LR range 0.001-0.1; epochs 50-3000.
+
+Recommendations must be concrete and actionable (e.g. "try lr=0.003 with cosine schedule" beats "reduce learning rate").`
+
 export interface Diagnosis {
   primary_cause: string
   evidence: string[]
@@ -72,18 +95,41 @@ function rulesFallback(bundle: SignalBundle, best: RunSignals): Diagnosis {
   return { primary_cause: primary, evidence: ev, recommendations: rec, confidence: "low", source: "rules" }
 }
 
+/**
+ * Downsample a loss history to ~50 points via simple stride. Full history can
+ * be thousands of epochs; 50 points is enough for Claude to see the shape.
+ */
+function sampleLossHistory(history: number[] | null | undefined, target = 50): number[] {
+  if (!history || history.length === 0) return []
+  if (history.length <= target) return history.map((v) => +v.toFixed(5))
+  const stride = Math.max(1, Math.floor(history.length / target))
+  const out: number[] = []
+  for (let i = 0; i < history.length; i += stride) {
+    out.push(+history[i]!.toFixed(5))
+  }
+  // Always include the last point so the tail is visible
+  const last = history[history.length - 1]!
+  if (out[out.length - 1] !== +last.toFixed(5)) out.push(+last.toFixed(5))
+  return out
+}
+
 function buildDiagnoserPrompt(
   bundle: SignalBundle,
   best: RunSignals,
   reflection: AutoLogEntry[],
   confusedPairs: Array<{ true_label: string; pred_label: string; count: number }>,
+  lossCurve: number[],
 ): string {
   const recent = reflection.slice(-8).map((e) => `  [${e.stage}] ${e.note}`).join("\n")
   const pairs = confusedPairs.length
     ? confusedPairs.map((p) => `  true="${p.true_label}" → pred="${p.pred_label}" (${p.count} samples)`).join("\n")
     : "  (n/a)"
 
-  return `You are the Neuron auto-trainer's diagnoser. A wave just completed with a problem signal. Identify the root cause.
+  const lossSection = lossCurve.length > 0
+    ? `\nLOSS CURVE (sampled, ${lossCurve.length} points from epoch 0 → ${best.epochs_requested ?? "end"}):\n${JSON.stringify(lossCurve)}\n`
+    : ""
+
+  return `A wave just completed with a problem signal. Identify the root cause.
 
 BEST RUN THIS WAVE:
 - run_id: ${best.run_id}
@@ -99,20 +145,14 @@ DATA HEALTH:
 - N=${bundle.data.n}, K=${bundle.data.k}, D=${bundle.data.d}
 - imbalance_ratio: ${bundle.data.imbalance_ratio ?? "n/a"}
 - warnings: ${bundle.data.warnings.join("; ") || "none"}
-
+${lossSection}
 TOP CONFUSED CLASS PAIRS:
 ${pairs}
 
 RECENT DECISION LOG:
 ${recent || "(empty)"}
 
-Respond with STRICTLY this JSON and nothing else:
-{
-  "primary_cause": "<overfitting | underfitting | truncated_training | class_imbalance | label_noise | feature_issue | other>",
-  "evidence": ["<signal 1>", "<signal 2>"],
-  "recommendations": ["<concrete next action>", "..."],
-  "confidence": "high" | "low"
-}
+Return the strict JSON contract from your system prompt.
 `
 }
 
@@ -122,6 +162,7 @@ export async function runDiagnoser(opts: {
   reflection: AutoLogEntry[]
   confusionMatrix?: number[][] | null
   labels?: string[] | null
+  lossHistory?: number[] | null
   signal?: AbortSignal
 }): Promise<Diagnosis> {
   // Bypass in benchmark/rules-only mode for determinism.
@@ -130,7 +171,8 @@ export async function runDiagnoser(opts: {
   }
 
   const pairs = topConfusedPairs(opts.confusionMatrix ?? null, opts.labels ?? null, 3)
-  const prompt = buildDiagnoserPrompt(opts.bundle, opts.bestRun, opts.reflection, pairs)
+  const lossCurve = sampleLossHistory(opts.lossHistory, 50)
+  const prompt = buildDiagnoserPrompt(opts.bundle, opts.bestRun, opts.reflection, pairs, lossCurve)
 
   const ac = new AbortController()
   if (opts.signal) opts.signal.addEventListener("abort", () => ac.abort())
@@ -146,6 +188,7 @@ export async function runDiagnoser(opts: {
         disallowedTools: ["Bash", "Read", "Edit", "Write", "Glob", "Grep"],
         maxTurns: 2,
         persistSession: false,
+        systemPrompt: DIAGNOSER_SYSTEM_PROMPT,
         mcpServers: {
           neuron: {
             type: "stdio" as const,

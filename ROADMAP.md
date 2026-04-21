@@ -583,6 +583,32 @@ Our 5-dataset bench hits the target in wave 1 thanks to the Phase 3 modern seed 
 
 ---
 
+## Phase 11.5 (new) — Intelligence fixes
+
+**Status**: ✅ **Shipped as v1.6.0 on 2026-04-21.**
+
+**Goal**: Close five gaps identified by auditing every Claude-touching code path. Biggest: `suggest_hyperparams` was lying to Claude about the available hyperparameter set (stuck on v0.6 constraints from six phases ago).
+
+**What shipped**:
+- **`suggest_hyperparams` prompt + output schema rewritten.** Documents post-Phase-3 levers (AdamW/Adam/SGD × tanh/relu/gelu/leaky_relu × constant/cosine/linear_warmup × cross_entropy/mse + batch_size / weight_decay / grad_clip / early_stop_patience / label_smoothing / SWA). Output schema expanded accordingly. Deterministic fallback modernized to pick the right baseline per dataset size.
+- **Planner emits structured `rule_explanations[]`.** Prompt asks for the Phase 10A schema per-choice; parser accepts structured + falls back to placeholder on legacy responses. No regression risk.
+- **`systemPrompt` on every Agent SDK sub-agent.** Planner + diagnoser now ship with role framing + strict output contracts + hardware context blocks.
+- **Hardware/perf context** in planner/diagnoser system prompts (CPU-only, epochs × N < 10M, batch_size 8-128, models < 1M params).
+- **Loss curve passed to diagnoser.** Stride-sampled to ~50 points. System prompt teaches Claude to map curve shape (smooth / plateau / spike / oscillation) to causes. Added `lr_too_high`, `lr_too_low`, `optimizer_mismatch` to the cause vocabulary.
+
+**Scope deltas** (explicitly deferred):
+- Live Claude commentary during training (Phase 10C from earlier roadmap) — own phase with real LLM cost.
+- De-Claude the sweep orchestrator's `runOneConfig` (expensive middleware; no intelligence gain) — architectural cleanup.
+- Error-recovery retry turn (if Claude returns bad JSON, retry with "fix your output" prompt before rules fallback).
+- Planner strategy-effectiveness tracking (which of aggressive/conservative/exploratory wins most per fingerprint).
+- Dedup `diagnose` tool vs `diagnoser.ts` controller sub-agent.
+
+**Verification**: neuron `tsc --noEmit` clean, dashboard `tsc -b && vite build` clean, `bench:fast` accuracy=1.000 (Δ=+0.000 — rules-only path bypasses Claude).
+
+**Time**: ~2 hours.
+
+---
+
 ## Phase 11A (new) — Small-LLM inference surface + Labeling UI
 
 **Status**: ✅ **Shipped as v1.5.0 on 2026-04-21.**
