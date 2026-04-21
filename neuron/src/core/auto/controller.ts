@@ -159,11 +159,17 @@ export async function runController(args: ControllerArgs): Promise<ControllerRes
       }
     } else {
       const rulesFallback = refineFromSignals(bundle)
-      const autoRunNow = getAutoRun(args.auto_run_id)
-      const reflection = autoRunNow?.decision_log ?? []
-      plan = args.tournament
-        ? await runTournament({ bundle, reflection, fallback: rulesFallback, signal: ac.signal })
-        : await runPlanner({ bundle, reflection, fallback: rulesFallback, signal: ac.signal })
+      // NEURON_PLANNER=rules forces deterministic rules-only mode (used by benchmarks).
+      // Skips the Claude planner entirely so repeated runs produce identical output.
+      if (process.env.NEURON_PLANNER === "rules") {
+        plan = { ...rulesFallback, source: "rules" as const }
+      } else {
+        const autoRunNow = getAutoRun(args.auto_run_id)
+        const reflection = autoRunNow?.decision_log ?? []
+        plan = args.tournament
+          ? await runTournament({ bundle, reflection, fallback: rulesFallback, signal: ac.signal })
+          : await runPlanner({ bundle, reflection, fallback: rulesFallback, signal: ac.signal })
+      }
     }
 
     log(args.auto_run_id, `sweep_wave_${wavesDone + 1}_plan`, plan.rationale, {

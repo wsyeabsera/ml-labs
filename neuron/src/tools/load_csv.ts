@@ -4,6 +4,7 @@ import { insertSample, sampleCounts, splitCounts } from "../core/db/samples"
 import { loadCsv } from "../core/loaders/csv"
 import { log } from "../core/logger"
 import { existsSync } from "node:fs"
+import { createRng, resolveSeed } from "../util/rng"
 
 export const name = "load_csv"
 export const description = "Batch-ingest a CSV file as samples for a task. Supports stratified train/test split."
@@ -15,6 +16,7 @@ export const schema = {
   feature_columns: z.array(z.string()).optional().describe("Column names to use as features. Omit to use all non-label columns."),
   has_header: z.boolean().default(true).describe("Whether the CSV has a header row (default: true)"),
   test_size: z.number().min(0).max(0.5).optional().describe("Fraction of data to reserve as test set (e.g. 0.2 for 20%). Stratified by class for classification. Omit to use all data for training."),
+  seed: z.number().int().optional().describe("Seed for the train/test split shuffle. Overrides NEURON_SEED env var. When set, the same seed produces the same split."),
 }
 
 export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
@@ -42,8 +44,8 @@ export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
     updateTaskFeatureNames(args.task_id, featureNames)
   }
 
-  // Assign train/test splits
-  const splits = assignSplits(rows, task.kind, args.test_size)
+  // Assign train/test splits (seeded if provided for reproducibility)
+  const splits = assignSplits(rows, task.kind, args.test_size, resolveSeed(args.seed))
 
   let inserted = 0
   const knownLabels = new Set(task.labels ?? [])
@@ -78,13 +80,16 @@ function assignSplits(
   rows: { label: string; features: number[] }[],
   kind: string,
   testSize?: number,
+  seed?: number,
 ): ("train" | "test")[] {
   const result: ("train" | "test")[] = new Array(rows.length).fill("train")
   if (!testSize || testSize <= 0) return result
 
+  const rng = createRng(seed)
+
   if (kind === "regression") {
     // Random split for regression (no discrete classes to stratify by)
-    const indices = shuffle([...Array(rows.length).keys()])
+    const indices = rng.shuffle([...Array(rows.length).keys()])
     const nTest = Math.round(rows.length * testSize)
     for (let i = 0; i < nTest; i++) result[indices[i]!] = "test"
   } else {
@@ -95,8 +100,12 @@ function assignSplits(
       if (!byClass[label]) byClass[label] = []
       byClass[label]!.push(i)
     }
-    for (const indices of Object.values(byClass)) {
-      const shuffled = shuffle([...indices])
+    // Sort class names for deterministic iteration order (Object.values ordering
+    // is insertion-order in JS, which depends on row ordering — explicit sort
+    // makes the split fully reproducible given the same input + seed).
+    const classNames = Object.keys(byClass).sort()
+    for (const name of classNames) {
+      const shuffled = rng.shuffle([...byClass[name]!])
       const nTest = Math.max(1, Math.round(shuffled.length * testSize))
       for (let i = 0; i < nTest && i < shuffled.length; i++) {
         result[shuffled[i]!] = "test"
@@ -105,12 +114,4 @@ function assignSplits(
   }
 
   return result
-}
-
-function shuffle<T>(arr: T[]): T[] {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j]!, arr[i]!]
-  }
-  return arr
 }

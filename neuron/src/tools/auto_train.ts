@@ -47,6 +47,11 @@ export const schema = {
     .boolean()
     .default(false)
     .describe("Enable multi-strategy tournament mode: for each wave run 3 parallel planners (aggressive/conservative/exploratory) and merge their proposals. Trades cost for robustness on hard tasks."),
+  seed: z
+    .number()
+    .int()
+    .optional()
+    .describe("Deterministic seed threaded through the controller. When combined with NEURON_PLANNER=rules, produces identical output across runs. Primarily for benchmarks and reproducibility."),
 }
 
 export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {

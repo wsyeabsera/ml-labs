@@ -22,6 +22,7 @@ export const schema = {
   class_weights: z.enum(["balanced"]).optional().describe("Oversample minority classes so every class contributes equally to training. Classification only."),
   weight_decay: z.number().nonnegative().optional().describe("L2 weight decay coefficient (default: 0). Typical values: 1e-4 .. 1e-2. Helps combat overfitting."),
   early_stop_patience: z.number().int().positive().optional().describe("Early-stopping patience in epochs. If set, training stops when loss has not improved for this many consecutive epochs."),
+  seed: z.number().int().optional().describe("Reserved for future use (Phase 3 mini-batch shuffle seeding). Accepted now so callers that pass it don't break."),
 }
 
 export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
