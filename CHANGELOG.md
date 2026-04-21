@@ -4,6 +4,48 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v0.11.0 — 2026-04-21
+
+### Added — Phase 5 (progress streaming + timeout hygiene)
+
+Long trainings no longer need the 1-hour timeout band-aid. rs-tensor streams progress back during `train_mlp`, and the MCP client resets the per-call timeout each time a notification arrives — so a training that keeps reporting progress can run indefinitely.
+
+**rs-tensor**:
+- `train_mlp` handler reads the caller's `progressToken` from request meta and emits `notify_progress` per epoch with `{ progress, total, message = "epoch X/Y, loss=..., elapsed=..." }`.
+- Throttled: max 1 notification per 200 ms wall clock. No-op when caller doesn't supply a token (backward compat — all prior callers work unchanged).
+- Handler signature gained `meta: Meta, peer: Peer<RoleServer>` params (the rmcp `#[tool]` macro auto-injects these).
+
+**Neuron**:
+- `mcp_client.call()` refactored to take a `CallOpts { timeoutMs, signal, onProgress }` object. Passes `onprogress` + `resetTimeoutOnProgress: true` + `maxTotalTimeout` to the SDK.
+- `rsTensor.trainMlp(...)` accepts an `onProgress` callback.
+- `trainHead` threads it into rs-tensor; each epoch tick becomes a `TrainProgress{stage="train", i=epoch, n=total}`, and `trainBg`'s existing throttled forwarder writes `run_progress` events to the DB. **Dashboard gets live per-epoch training updates automatically** — no dashboard-side changes needed.
+
+**Timeout strategy**:
+- Default per-call timeout: 1 hour → **5 minutes**. That's the idle ceiling; any progress notification resets it.
+- `maxTotalTimeout`: **4 hours** hard ceiling regardless of progress resets.
+- New env var `RS_TENSOR_MAX_TIMEOUT_MS` overrides the total ceiling for truly long runs. `RS_TENSOR_TIMEOUT_MS` still overrides the per-call timeout.
+
+### Integration test
+
+- `neuron/test/integration/progress.ts`: 3000-epoch training on a 500×32 synthetic dataset with AdamW+ReLU. **Received 199 progress notifications in 41s**, reached epoch 2971/3000, completed without timeout. Proves the end-to-end pipeline.
+
+### Deferred
+
+- **Dashboard live loss sparkline** on ActiveRunCard → Phase 7 (dashboard UX). Events are flowing now; visualization is a small follow-up.
+- **Live Claude commentary** (opt-in `auto_train({ live_commentary: true })`) → Phase 6. Planner sub-agent subscribes to progress events and emits notes.
+- **Mid-wave cancellation** (NaN detection, fast-convergence early-out) → Phase 6.
+- **MCP Tasks adoption (SEP-1686)** — experimental in TS SDK, absent from rmcp 0.16. Revisit when both ship stable support.
+
+### Upgrade
+
+```bash
+ml-labs update
+```
+
+Rebuilds rs-tensor (new progress emission path). Existing calls without progress tokens produce identical results to v0.10.
+
+---
+
 ## v0.10.0 — 2026-04-21
 
 ### Added — Phase 4 (calibration & small-model wins)

@@ -318,6 +318,8 @@ Every phase has the same skeleton:
 
 ## Phase 5 — MCP Tasks + Progress Streaming
 
+**Status**: ✅ **Shipped as v0.11.0 on 2026-04-21.** See retro below.
+
 **Goal**: Kill the timeout band-aid structurally. Long trainings become first-class.
 
 ### Scope
@@ -364,6 +366,26 @@ Every phase has the same skeleton:
 ### Ships as
 
 **v0.11.0**. Protocol-level change; requires rs-tensor rebuild.
+
+### Retro (2026-04-21)
+
+**Shipped using progress notifications, not MCP Tasks.** 5-minute per-call timeout with progress-based reset replaces the 1-hour band-aid.
+
+**SDK survey findings that shaped the design**:
+- MCP Tasks (SEP-1686) is marked `experimental` in `@modelcontextprotocol/sdk` 1.29 and **absent from rmcp 0.16**. Tying core training to an unstable surface wasn't worth it.
+- **Progress notifications** are stable in both SDKs. `rmcp 0.16` exposes `Peer::notify_progress` inside tool handlers and `Meta::get_progress_token` for reading the caller's token; the TS SDK supports `onprogress`, `resetTimeoutOnProgress`, and `maxTotalTimeout` on `callTool`. All the machinery we actually need.
+- Decision: use progress notifications with reset-on-progress instead. Same outcome (unbounded trainings) via the stable path.
+
+**Integration test evidence**: 3000-epoch training on a 500×32 synthetic AdamW+ReLU network received **199 progress notifications in 41 s**, reached epoch 2971/3000, completed without any timeout. Would have blown the old 10-minute limit easily on a heavier workload.
+
+**Bench**: Δ=+0.000 on all 5 datasets. Progress emission is a pure side-channel addition — doesn't change training output.
+
+**Scope deltas from the plan**:
+- **MCP Tasks (SEP-1686) not adopted** — see above. Will revisit once stable in both SDKs.
+- **Dashboard live loss sparkline deferred** to Phase 7. Events flow today; the viz is a ~half-day UX task we'll do in the dashboard pass.
+- **Live Claude commentary + mid-wave cancellation** deferred to Phase 6 (where planner-side reactivity fits cleanly).
+
+**Time**: ~1 hour including rs-tensor rebuild and integration test.
 
 ---
 
