@@ -91,7 +91,7 @@ export function severityForMetric(metric: number | null, isRegression: boolean):
   return "minor"
 }
 
-function computeConvergenceEpoch(loss: number[], epochsRequested: number | null): number | null {
+export function computeConvergenceEpoch(loss: number[], epochsRequested: number | null): number | null {
   const N = loss.length
   if (N <= 10) return null
   for (let i = N - 1; i > 0; i--) {
@@ -106,7 +106,7 @@ function computeConvergenceEpoch(loss: number[], epochsRequested: number | null)
   return null
 }
 
-function computeStillImproving(loss: number[]): boolean {
+export function computeStillImproving(loss: number[]): boolean {
   const N = loss.length
   if (N <= 20) return false
   const tail = loss.slice(-Math.ceil(N * 0.1))
@@ -116,7 +116,7 @@ function computeStillImproving(loss: number[]): boolean {
   return priorMean - tailMean > 0.001 * priorMean
 }
 
-function computePerClassVariance(pc: Record<string, number> | null): number | null {
+export function computePerClassVariance(pc: Record<string, number> | null): number | null {
   if (!pc) return null
   const vals = Object.values(pc)
   if (vals.length < 2) return 0

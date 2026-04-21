@@ -9,6 +9,8 @@ import { lookupBestPattern, savePattern, taskFingerprint } from "./patterns"
 import {
   saveVerdictJson,
   verdictSummaryOneLiner,
+  scoreClassification,
+  scoreRegression,
   type StructuredVerdict,
   type VerdictStatus,
 } from "./verdict"
@@ -37,18 +39,6 @@ export interface ControllerResult {
   verdict_json: StructuredVerdict
   published_uri?: string
   wall_clock_s: number
-}
-
-function scoreClassification(r: RunSignals): number {
-  // Prefer val accuracy; apply overfit penalty if train-val gap > 0.15
-  if (r.val_accuracy != null && r.accuracy != null && r.accuracy - r.val_accuracy > 0.15) {
-    return r.val_accuracy - 0.5 * (r.accuracy - r.val_accuracy)
-  }
-  return r.val_accuracy ?? r.accuracy ?? -Infinity
-}
-
-function scoreRegression(r: RunSignals): number {
-  return r.r2 ?? -Infinity
 }
 
 function log(autoRunId: number, stage: string, note: string, payload?: unknown) {

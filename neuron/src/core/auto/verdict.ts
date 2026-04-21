@@ -1,5 +1,6 @@
 import { db } from "../db/schema"
 import type { SweepConfig } from "../sweep/configs"
+import type { RunSignals } from "./signals"
 
 export type VerdictStatus =
   | "completed"
@@ -30,6 +31,26 @@ export interface StructuredVerdict {
 
 export function saveVerdictJson(autoRunId: number, v: StructuredVerdict): void {
   db.exec(`UPDATE auto_runs SET verdict_json = ? WHERE id = ?`, [JSON.stringify(v), autoRunId])
+}
+
+/**
+ * Score a classification run. Prefers val_accuracy when present; applies an
+ * overfit penalty when the train-val gap exceeds 0.15 (promoting overfit runs
+ * was a named gap in the Tier 1 analysis).
+ */
+export function scoreClassification(r: RunSignals): number {
+  if (
+    r.val_accuracy != null && r.accuracy != null
+    && r.accuracy - r.val_accuracy > 0.15
+  ) {
+    return r.val_accuracy - 0.5 * (r.accuracy - r.val_accuracy)
+  }
+  return r.val_accuracy ?? r.accuracy ?? -Infinity
+}
+
+/** Score a regression run by R² (higher is better). */
+export function scoreRegression(r: RunSignals): number {
+  return r.r2 ?? -Infinity
 }
 
 export function verdictSummaryOneLiner(v: StructuredVerdict): string {
