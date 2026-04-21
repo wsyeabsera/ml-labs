@@ -195,6 +195,11 @@ export async function trainHead<S>(opts: {
       ...(hyperparams.swa !== undefined ? { swa: hyperparams.swa } : {}),
       ...(hyperparams.swaStartEpoch !== undefined ? { swa_start_epoch: hyperparams.swaStartEpoch } : {}),
       ...(hyperparams.labelSmoothing !== undefined ? { label_smoothing: hyperparams.labelSmoothing } : {}),
+      // Stream per-epoch progress from rs-tensor through to the caller's
+      // onProgress (already throttled + routed to events by trainBg).
+      onProgress: onProgress
+        ? (p) => onProgress({ stage: "train", i: p.progress, n: p.total, message: p.message ?? "" })
+        : undefined,
     },
   )
   const lossHistory = trainResult.loss_history_sampled ?? []

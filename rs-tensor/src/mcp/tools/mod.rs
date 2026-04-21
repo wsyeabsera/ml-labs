@@ -659,11 +659,18 @@ impl TensorServer {
         )]))
     }
 
-    #[tool(description = "Train an MLP on a dataset. Supports SGD / Adam / AdamW optimizers, mini-batch, LR schedules (constant/cosine/linear_warmup), activation auto-selection, CrossEntropy loss, gradient clipping, weight decay, and early stopping. Defaults match the v0.6 behavior (full-batch SGD + tanh + MSE) for backward compatibility.")]
+    #[tool(description = "Train an MLP on a dataset. Supports SGD / Adam / AdamW optimizers, mini-batch, LR schedules (constant/cosine/linear_warmup), activation auto-selection, CrossEntropy loss, gradient clipping, weight decay, early stopping, SWA, label smoothing, and streaming progress notifications. Defaults match the v0.6 behavior (full-batch SGD + tanh + MSE) for backward compatibility.")]
     async fn train_mlp(
         &self,
         Parameters(args): Parameters<TrainMlpArgs>,
+        meta: rmcp::model::Meta,
+        peer: rmcp::Peer<rmcp::RoleServer>,
     ) -> Result<CallToolResult, McpError> {
+        // Progress notification setup — only emits when the caller supplied a token.
+        let progress_token: Option<rmcp::model::ProgressToken> =
+            meta.get_progress_token().map(|t| t.clone());
+        let mut last_emit_ms: u128 = 0;
+        let t_start = std::time::Instant::now();
         let mut store = self.tensors.lock().await;
 
         let inputs = match store.get(&args.inputs) {
@@ -1020,6 +1027,33 @@ impl TensorServer {
             let epoch_loss = if epoch_batches > 0 { epoch_loss_sum / epoch_batches as f32 } else { 0.0 };
             loss_history.push(epoch_loss);
             epochs_done += 1;
+
+            // Stream progress to the MCP client (throttled; no-op if no progress token).
+            if let Some(ref tok) = progress_token {
+                let elapsed_ms = t_start.elapsed().as_millis();
+                let should_emit = epoch == 0 || elapsed_ms.saturating_sub(last_emit_ms) >= 200;
+                if should_emit {
+                    last_emit_ms = elapsed_ms;
+                    let message = format!(
+                        "epoch {}/{}, loss={:.4}, lr={:.4}, elapsed={}s",
+                        epoch + 1, args.epochs, epoch_loss, current_lr, elapsed_ms / 1000,
+                    );
+                    let peer_clone = peer.clone();
+                    let tok_clone = tok.clone();
+                    let total_f = args.epochs as f64;
+                    let progress_val = (epoch + 1) as f64;
+                    tokio::spawn(async move {
+                        let _ = peer_clone
+                            .notify_progress(rmcp::model::ProgressNotificationParam {
+                                progress_token: tok_clone,
+                                progress: progress_val,
+                                total: Some(total_f),
+                                message: Some(message),
+                            })
+                            .await;
+                    });
+                }
+            }
 
             // SWA running-average update. Once the warmup fraction is reached,
             // incorporate current weights into the running mean per param:

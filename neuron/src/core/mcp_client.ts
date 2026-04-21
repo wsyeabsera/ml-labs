@@ -53,18 +53,49 @@ function isConnectionError(err: unknown): boolean {
     m.includes("expect initialize")
 }
 
-// 1-hour default so long trainings (large N, high epochs, tournament waves) don't get
-// killed mid-loop. Override per-call via the timeoutMs arg or globally via RS_TENSOR_TIMEOUT_MS (ms).
+// Per-call timeout — 5 minutes by default. Training calls emit progress
+// notifications (Phase 5), and `resetTimeoutOnProgress: true` means any
+// incoming progress event resets this timer. So a training that keeps
+// reporting progress can run for up to `MAX_TOTAL_TIMEOUT_MS` total.
 const DEFAULT_TIMEOUT_MS = process.env.RS_TENSOR_TIMEOUT_MS
   ? Math.max(60_000, parseInt(process.env.RS_TENSOR_TIMEOUT_MS))
-  : 3_600_000
+  : 300_000
 
-export async function call<T = unknown>(tool: string, args: Record<string, unknown>, timeoutMs = DEFAULT_TIMEOUT_MS, signal?: AbortSignal): Promise<T> {
+// Hard ceiling for any single MCP call — 4 hours. Applies regardless of
+// progress resets. For longer trainings, raise via RS_TENSOR_MAX_TIMEOUT_MS.
+const MAX_TOTAL_TIMEOUT_MS = process.env.RS_TENSOR_MAX_TIMEOUT_MS
+  ? Math.max(60_000, parseInt(process.env.RS_TENSOR_MAX_TIMEOUT_MS))
+  : 14_400_000
+
+export interface CallOpts {
+  timeoutMs?: number
+  signal?: AbortSignal
+  onProgress?: (p: { progress: number; total?: number; message?: string }) => void
+}
+
+export async function call<T = unknown>(
+  tool: string,
+  args: Record<string, unknown>,
+  opts: CallOpts = {},
+): Promise<T> {
+  const timeout = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
   let lastErr: unknown
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const c = await getClient()
-      const result = await c.callTool({ name: tool, arguments: args }, undefined, { timeout: timeoutMs, signal })
+      const result = await c.callTool(
+        { name: tool, arguments: args },
+        undefined,
+        {
+          timeout,
+          maxTotalTimeout: MAX_TOTAL_TIMEOUT_MS,
+          resetTimeoutOnProgress: true,
+          signal: opts.signal,
+          onprogress: opts.onProgress
+            ? (n) => opts.onProgress!({ progress: n.progress, total: n.total, message: n.message })
+            : undefined,
+        },
+      )
       const content = Array.isArray(result.content) ? result.content[0] : null
       if (!content || content.type !== "text") throw new Error(`Unexpected response from "${tool}"`)
       return JSON.parse(content.text) as T
@@ -144,6 +175,7 @@ export const rsTensor = {
       swa?: boolean
       swa_start_epoch?: number
       label_smoothing?: number
+      onProgress?: (p: { progress: number; total?: number; message?: string }) => void
     },
   ) =>
     call<{
@@ -169,6 +201,7 @@ export const rsTensor = {
         ...(opts?.swa_start_epoch !== undefined ? { swa_start_epoch: opts.swa_start_epoch } : {}),
         ...(opts?.label_smoothing !== undefined ? { label_smoothing: opts.label_smoothing } : {}),
       },
+      { onProgress: opts?.onProgress },
     ),
 
   evaluateMlp: (mlp: string, inputs: string, targets?: string) =>
