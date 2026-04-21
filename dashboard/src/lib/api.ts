@@ -28,6 +28,16 @@ export interface ApiTask {
   createdAt: number
 }
 
+export interface ApiRunContext {
+  neuron_version: string
+  git_sha: string | null
+  rs_tensor_sha: string | null
+  hostname: string
+  pid: number
+  start_ts: string
+  rng_seed: number | null
+}
+
 export interface ApiRun {
   id: number
   taskId: string
@@ -38,6 +48,7 @@ export interface ApiRun {
   perClassAccuracy: Record<string, number> | null
   confusionMatrix: number[][] | null
   lossHistory: number[] | null
+  valLossHistory: number[] | null
   mae: number | null
   rmse: number | null
   r2: number | null
@@ -45,7 +56,64 @@ export interface ApiRun {
   startedAt: number | null
   finishedAt: number | null
   durationS: number | null
-  runProgress?: { stage: string; i?: number; n?: number; message: string } | null
+  runProgress?: {
+    stage: string
+    i?: number
+    n?: number
+    message: string
+    lossHistory?: number[]
+    epochsDone?: number
+  } | null
+  runContext?: ApiRunContext | null
+  datasetHash?: string | null
+  cvFoldId?: number | null
+  cvParentId?: number | null
+  calibrationTemperature?: number | null
+}
+
+export interface ApiAutoVerdict {
+  status?: string
+  winner?: {
+    run_id?: number
+    metric_value?: number
+    metric_name?: string
+    is_overfit?: boolean
+    confidence?: string
+  }
+  attempted?: {
+    configs_tried?: number
+    waves_used?: number
+    wall_clock_s?: number
+  }
+  data_issues?: string[]
+  next_steps?: string[]
+}
+
+export interface ApiAutoRunSummary {
+  id: number
+  taskId: string
+  status: string
+  startedAt: string
+  finishedAt: string | null
+  accuracyTarget: number | null
+  budgetS: number | null
+  maxWaves: number | null
+  wavesUsed: number
+  winnerRunId: number | null
+  finalAccuracy: number | null
+  verdict: string | null
+  verdictJson: ApiAutoVerdict | null
+}
+
+export interface ApiAutoLogEntry {
+  ts: string
+  stage: string
+  note: string
+  payload?: unknown
+}
+
+export interface ApiAutoRunDetail extends ApiAutoRunSummary {
+  decisionLog: ApiAutoLogEntry[]
 }
 
 export interface ApiRunProgress {
@@ -71,6 +139,7 @@ export interface ApiPredictResult {
   scores?: Record<string, number>
   value?: number
   raw_output?: number
+  calibrated?: boolean
 }
 
 export interface ApiBatchRow {
@@ -327,6 +396,20 @@ export const api = {
       if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`)
       return data as ApiSuggestSamples
     }),
+
+  autoRuns: (opts?: { task?: string; limit?: number; offset?: number }) => {
+    const url = new URL(`${window.location.origin}${BASE}/auto`)
+    if (opts?.task) url.searchParams.set("task", opts.task)
+    if (opts?.limit) url.searchParams.set("limit", String(opts.limit))
+    if (opts?.offset) url.searchParams.set("offset", String(opts.offset))
+    return fetch(url.toString()).then(async (res) => {
+      const data = await res.json() as { autoRuns: ApiAutoRunSummary[]; error?: string }
+      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`)
+      return data
+    })
+  },
+
+  autoRun: (id: number) => get<ApiAutoRunDetail>(`/auto/${id}`),
 
   batchPredict: (taskId: string, csv: string, labelColumn?: string) => {
     const url = new URL(`${window.location.origin}${BASE}/tasks/${encodeURIComponent(taskId)}/batch_predict`)

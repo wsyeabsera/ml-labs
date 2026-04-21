@@ -14,6 +14,8 @@ import { Sweep } from "./routes/Sweep"
 import { Upload } from "./routes/Upload"
 import { Activity } from "./routes/Activity"
 import { Drift } from "./routes/Drift"
+import { AutoRunsAll } from "./routes/AutoRunsAll"
+import { AutoRunDetail } from "./routes/AutoRunDetail"
 
 const qc = new QueryClient({
   defaultOptions: {
@@ -43,6 +45,8 @@ export function App() {
                 <Route path="/upload"                         element={<Upload />} />
                 <Route path="/activity"                       element={<Activity />} />
                 <Route path="/drift"                          element={<Drift />} />
+                <Route path="/auto"                           element={<AutoRunsAll />} />
+                <Route path="/auto/:id"                       element={<AutoRunDetail />} />
               </Routes>
             </div>
           </main>

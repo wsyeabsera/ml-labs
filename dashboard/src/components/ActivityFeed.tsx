@@ -6,6 +6,7 @@ import {
   ChevronDown, ChevronUp, Cpu, Play, CheckCircle2,
   AlertCircle, Upload, SlidersHorizontal, Wrench, Bot,
   Layers, RotateCcw, Trash2, BookOpen, Activity,
+  Thermometer, Database, TrendingUp,
 } from "lucide-react"
 import { createGlobalEventSource, type ApiEvent } from "../lib/api"
 import { ToastContainer, type ToastItem } from "./Toast"
@@ -126,6 +127,31 @@ export function ActivityFeedProvider({ children }: { children: React.ReactNode }
     if (ev.kind === "upload" && ev.taskId) {
       qc.invalidateQueries({ queryKey: ["tasks"] })
     }
+    if (ev.kind === "calibrated" && ev.runId) {
+      qc.invalidateQueries({ queryKey: ["run", ev.runId] })
+      const T = (ev.payload as { temperature?: number }).temperature
+      pushToast({
+        kind: "info",
+        message: `Run #${ev.runId} calibrated${T != null ? ` — T=${T.toFixed(3)}` : ""}`,
+      })
+    }
+    if (ev.kind === "drift_detected" && ev.taskId) {
+      qc.invalidateQueries({ queryKey: ["drift", ev.taskId] })
+      const verdict = (ev.payload as { verdict?: string }).verdict
+      pushToast({
+        kind: verdict === "severe" ? "danger" : "warning",
+        message: `Drift ${verdict ?? "detected"}${ev.taskId ? ` · ${ev.taskId}` : ""}`,
+      })
+    }
+    if (ev.kind === "auto_collect_start" || ev.kind === "auto_collect_added") {
+      if (ev.taskId) {
+        qc.invalidateQueries({ queryKey: ["task", ev.taskId] })
+        qc.invalidateQueries({ queryKey: ["auto", ev.taskId] })
+      }
+    }
+    if (ev.kind === "sweep_wave_started" || ev.kind === "sweep_wave_completed") {
+      if (ev.taskId) qc.invalidateQueries({ queryKey: ["sweep", ev.taskId] })
+    }
   }, [qc, pushToast])
 
   useEffect(() => {
@@ -154,8 +180,12 @@ export function ActivityFeedProvider({ children }: { children: React.ReactNode }
         "tool_call", "run_started", "run_stage", "run_progress",
         "run_completed", "run_cancelled", "run_failed",
         "model_registered", "sweep_started", "sweep_completed",
-        "sweep_cancelled", "sweep_progress", "upload",
+        "sweep_cancelled", "sweep_progress",
+        "sweep_wave_started", "sweep_wave_completed",
+        "upload",
         "auto_started", "auto_note", "auto_completed",
+        "auto_collect_start", "auto_collect_added",
+        "calibrated", "drift_detected",
         "request", "response", "config_reload",
         "task_reset", "task_deleted",
       ]) {
@@ -196,10 +226,16 @@ const KIND_ICON: Record<string, React.ReactNode> = {
   sweep_completed:  <SlidersHorizontal size={10} />,
   sweep_cancelled:  <SlidersHorizontal size={10} />,
   sweep_progress:   <SlidersHorizontal size={10} />,
+  sweep_wave_started:   <Layers size={10} />,
+  sweep_wave_completed: <Layers size={10} />,
   upload:           <Upload size={10} />,
   auto_started:     <Bot size={10} />,
   auto_note:        <BookOpen size={10} />,
   auto_completed:   <Bot size={10} />,
+  auto_collect_start: <Database size={10} />,
+  auto_collect_added: <Database size={10} />,
+  calibrated:       <Thermometer size={10} />,
+  drift_detected:   <TrendingUp size={10} />,
   model_registered: <CheckCircle2 size={10} />,
   request:          <Cpu size={10} />,
   response:         <CheckCircle2 size={10} />,
@@ -220,6 +256,9 @@ const KIND_COLOR: Record<string, string> = {
   response:         "text-[var(--info)]",
   auto_note:        "text-[var(--accent-text)]",
   auto_started:     "text-[var(--accent-text)]",
+  calibrated:       "text-[var(--info)]",
+  drift_detected:   "text-[var(--warning)]",
+  sweep_wave_completed: "text-[var(--accent-text)]",
 }
 
 function timeAgo(ts: number): string {
@@ -272,15 +311,53 @@ function eventLabel(ev: ApiEvent): string {
     case "response":      return `Claude answered`
     case "task_reset":    return `task reset: ${ev.taskId}`
     case "task_deleted":  return `task deleted: ${ev.taskId}`
+    case "calibrated": {
+      const T = p.temperature as number | undefined
+      return `calibrated${ev.runId ? ` run #${ev.runId}` : ""}${T != null ? ` · T=${T.toFixed(3)}` : ""}`
+    }
+    case "drift_detected": {
+      const verdict = p.verdict as string | undefined
+      const n = p.drifting_features as number | undefined
+      return `drift ${verdict ?? "detected"}${n != null ? ` · ${n} features` : ""}${ev.taskId ? ` · ${ev.taskId}` : ""}`
+    }
+    case "auto_collect_start": {
+      const n = p.n_requested as number | undefined
+      return `auto_collect started${n != null ? ` · want ${n}` : ""}`
+    }
+    case "auto_collect_added": {
+      const n = p.n_added as number | undefined
+      return `auto_collect added${n != null ? ` ${n} samples` : ""}`
+    }
+    case "sweep_wave_started": {
+      const w = p.wave as number | undefined
+      const src = p.source as string | undefined
+      const total = p.total as number | undefined
+      return `wave${w != null ? ` ${w}` : ""} started${src ? ` · ${src}` : ""}${total != null ? ` · ${total} configs` : ""}`
+    }
+    case "sweep_wave_completed": {
+      const w = p.wave as number | undefined
+      const best = p.bestAccuracy as number | undefined
+      return `wave${w != null ? ` ${w}` : ""} done${best != null ? ` · ${(best * 100).toFixed(1)}%` : ""}`
+    }
     default:              return ev.kind
   }
 }
 
 function eventLink(ev: ApiEvent): string | null {
-  if (ev.taskId && ev.runId && ["run_completed", "run_started", "run_stage"].includes(ev.kind)) {
+  if (ev.taskId && ev.runId && ["run_completed", "run_started", "run_stage", "calibrated"].includes(ev.kind)) {
     return `/tasks/${encodeURIComponent(ev.taskId)}/runs/${ev.runId}`
   }
-  if (ev.taskId && ["upload", "sweep_completed", "sweep_started", "auto_completed", "auto_started"].includes(ev.kind)) {
+  if (ev.taskId && ev.kind === "drift_detected") {
+    return `/drift`
+  }
+  if (ev.kind === "auto_started" || ev.kind === "auto_completed" || ev.kind === "auto_note" ||
+      ev.kind === "auto_collect_start" || ev.kind === "auto_collect_added") {
+    const autoId = (ev.payload as { autoRunId?: number; auto_run_id?: number }).autoRunId
+      ?? (ev.payload as { auto_run_id?: number }).auto_run_id
+    if (autoId != null) return `/auto/${autoId}`
+    if (ev.taskId) return `/tasks/${encodeURIComponent(ev.taskId)}`
+  }
+  if (ev.taskId && ["upload", "sweep_completed", "sweep_started", "sweep_wave_started", "sweep_wave_completed"].includes(ev.kind)) {
     return `/tasks/${encodeURIComponent(ev.taskId)}`
   }
   return null

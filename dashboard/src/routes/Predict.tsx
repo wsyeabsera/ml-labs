@@ -149,6 +149,14 @@ function SinglePredict({ task }: { task: ApiTask }) {
                 <div className="flex items-baseline gap-2 mb-5">
                   <span className="text-xs text-[var(--text-3)]">Prediction</span>
                   <span className="font-semibold text-xl text-[var(--text-1)] font-mono">{result.label}</span>
+                  {result.calibrated && (
+                    <span
+                      className="text-2xs font-mono px-1.5 py-0.5 rounded border border-[var(--success)] text-[var(--success)]"
+                      title="Confidence was temperature-scaled using a calibrated temperature"
+                    >
+                      calibrated
+                    </span>
+                  )}
                   <span className="text-xs text-[var(--text-3)] ml-auto font-mono">
                     {((result.confidence ?? 0) * 100).toFixed(1)}% confidence
                   </span>

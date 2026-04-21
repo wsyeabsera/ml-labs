@@ -2,11 +2,11 @@ import { useParams, Link } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
 import { useEffect, useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { ArrowLeft, X } from "lucide-react"
+import { ArrowLeft, X, Copy, Check } from "lucide-react"
 import {
-  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
+  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
 } from "recharts"
-import { api, createRunEventSource } from "../lib/api"
+import { api, createRunEventSource, type ApiRunContext } from "../lib/api"
 import { StatusDot } from "../components/StatusDot"
 import { clsx } from "clsx"
 
@@ -16,8 +16,14 @@ function pct(v: number | null | undefined) {
 
 // ── Loss curve ─────────────────────────────────────────────────────────────────
 
-function LossCurve({ history }: { history: number[] }) {
-  const data = history.map((loss, i) => ({ epoch: i + 1, loss: +loss.toFixed(5) }))
+function LossCurve({ history, valHistory }: { history: number[]; valHistory?: number[] | null }) {
+  const len = Math.max(history.length, valHistory?.length ?? 0)
+  const data = Array.from({ length: len }, (_, i) => ({
+    epoch: i + 1,
+    loss: history[i] != null ? +history[i]!.toFixed(5) : null,
+    val:  valHistory?.[i] != null ? +valHistory[i]!.toFixed(5) : null,
+  }))
+  const hasVal = (valHistory?.length ?? 0) > 0
 
   return (
     <ResponsiveContainer width="100%" height={200}>
@@ -45,16 +51,32 @@ function LossCurve({ history }: { history: number[] }) {
             fontSize: 11,
             color: "var(--text-1)",
           }}
-          formatter={(v: number) => [v.toFixed(5), "loss"]}
+          formatter={(v: number, name) => [v.toFixed(5), name]}
         />
+        {hasVal && <Legend wrapperStyle={{ fontSize: 10, paddingTop: 4 }} />}
         <Line
+          name="train"
           type="monotone"
           dataKey="loss"
           stroke="var(--accent-text)"
           strokeWidth={1.5}
           dot={false}
           activeDot={{ r: 3, fill: "var(--accent-text)" }}
+          connectNulls
         />
+        {hasVal && (
+          <Line
+            name="val"
+            type="monotone"
+            dataKey="val"
+            stroke="var(--warning)"
+            strokeWidth={1.5}
+            strokeDasharray="4 3"
+            dot={false}
+            activeDot={{ r: 3, fill: "var(--warning)" }}
+            connectNulls
+          />
+        )}
       </LineChart>
     </ResponsiveContainer>
   )
@@ -220,6 +242,147 @@ function ConfusionDrawer({
         )}
       </div>
     </motion.div>
+  )
+}
+
+// ── Training config (grouped hyperparams) ─────────────────────────────────────
+
+const HP_GROUPS: Array<{ title: string; keys: string[] }> = [
+  { title: "Core",          keys: ["lr", "epochs", "batch_size", "head_arch", "hidden_layers"] },
+  { title: "Optimizer",     keys: ["optimizer", "momentum", "beta1", "beta2", "eps"] },
+  { title: "LR schedule",   keys: ["lr_schedule", "warmup_epochs", "lr_min"] },
+  { title: "Regularization", keys: ["weight_decay", "grad_clip", "dropout", "label_smoothing"] },
+  { title: "Activation / loss", keys: ["activation", "loss", "class_weights"] },
+  { title: "SWA / early-stop",  keys: ["swa", "swa_start_epoch", "swa_lr", "early_stop_patience", "early_stop_min_delta"] },
+]
+
+function TrainingConfigCard({ hp }: { hp: Record<string, unknown> }) {
+  const used = new Set<string>()
+  const groups = HP_GROUPS.map((g) => {
+    const present = g.keys.filter((k) => hp[k] !== undefined)
+    present.forEach((k) => used.add(k))
+    return { title: g.title, entries: present.map((k) => [k, hp[k]] as const) }
+  }).filter((g) => g.entries.length > 0)
+
+  const other = Object.entries(hp).filter(([k]) => !used.has(k))
+  if (other.length > 0) groups.push({ title: "Other", entries: other })
+
+  if (groups.length === 0) return null
+
+  return (
+    <div className="card p-4">
+      <p className="text-xs font-medium text-[var(--text-2)] mb-3">Training config</p>
+      <div className="space-y-4">
+        {groups.map((g) => (
+          <div key={g.title}>
+            <p className="section-label mb-2">{g.title}</p>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-1.5">
+              {g.entries.map(([k, v]) => (
+                <div key={k} className="flex items-baseline justify-between gap-2 text-xs border-b border-[var(--border-subtle)] pb-1">
+                  <span className="text-[var(--text-3)] font-mono truncate">{k}</span>
+                  <span className="text-[var(--text-1)] font-mono truncate" title={JSON.stringify(v)}>
+                    {typeof v === "object" ? JSON.stringify(v) : String(v)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Run context (environment / reproducibility) ───────────────────────────────
+
+function CopyChip({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false)
+  const short = value.length > 16 ? `${value.slice(0, 12)}…` : value
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        navigator.clipboard.writeText(value).catch(() => {})
+        setCopied(true)
+        setTimeout(() => setCopied(false), 1500)
+      }}
+      className="flex items-baseline justify-between gap-2 text-xs border-b border-[var(--border-subtle)] pb-1 w-full text-left hover:bg-[var(--surface-2)] rounded-sm px-1 -mx-1 transition-colors"
+      title={`${value} — click to copy`}
+    >
+      <span className="text-[var(--text-3)] font-mono">{label}</span>
+      <span className="inline-flex items-center gap-1 text-[var(--text-1)] font-mono">
+        {short}
+        {copied ? <Check size={10} className="text-[var(--success)]" /> : <Copy size={10} className="text-[var(--text-3)]" />}
+      </span>
+    </button>
+  )
+}
+
+function RunContextCard({
+  ctx, datasetHash, cvFoldId, cvParentId, calibrationTemperature, taskId,
+}: {
+  ctx: ApiRunContext | null | undefined
+  datasetHash: string | null | undefined
+  cvFoldId: number | null | undefined
+  cvParentId: number | null | undefined
+  calibrationTemperature: number | null | undefined
+  taskId: string
+}) {
+  const rows: Array<{ k: string; v: string | number | null | undefined; copy?: boolean }> = []
+  if (ctx) {
+    rows.push({ k: "neuron", v: ctx.neuron_version })
+    if (ctx.git_sha) rows.push({ k: "git_sha", v: ctx.git_sha, copy: true })
+    if (ctx.rs_tensor_sha) rows.push({ k: "rs_tensor", v: ctx.rs_tensor_sha, copy: true })
+    rows.push({ k: "hostname", v: ctx.hostname })
+    rows.push({ k: "pid", v: ctx.pid })
+    if (ctx.rng_seed != null) rows.push({ k: "rng_seed", v: ctx.rng_seed })
+    rows.push({ k: "start_ts", v: ctx.start_ts })
+  }
+  if (datasetHash) rows.push({ k: "dataset_hash", v: datasetHash, copy: true })
+
+  if (rows.length === 0 && cvFoldId == null && cvParentId == null && calibrationTemperature == null) return null
+
+  return (
+    <div className="card p-4">
+      <p className="text-xs font-medium text-[var(--text-2)] mb-3">Run context</p>
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-1.5">
+        {rows.map(({ k, v, copy }) =>
+          copy && typeof v === "string" ? (
+            <CopyChip key={k} label={k} value={v} />
+          ) : (
+            <div key={k} className="flex items-baseline justify-between gap-2 text-xs border-b border-[var(--border-subtle)] pb-1">
+              <span className="text-[var(--text-3)] font-mono">{k}</span>
+              <span className="text-[var(--text-1)] font-mono truncate" title={String(v ?? "")}>
+                {String(v ?? "—")}
+              </span>
+            </div>
+          ),
+        )}
+        {calibrationTemperature != null && (
+          <div className="flex items-baseline justify-between gap-2 text-xs border-b border-[var(--border-subtle)] pb-1">
+            <span className="text-[var(--text-3)] font-mono">calibration_T</span>
+            <span className="text-[var(--success)] font-mono">{calibrationTemperature.toFixed(3)}</span>
+          </div>
+        )}
+        {cvFoldId != null && (
+          <div className="flex items-baseline justify-between gap-2 text-xs border-b border-[var(--border-subtle)] pb-1">
+            <span className="text-[var(--text-3)] font-mono">cv_fold</span>
+            <span className="text-[var(--text-1)] font-mono">#{cvFoldId}</span>
+          </div>
+        )}
+        {cvParentId != null && (
+          <div className="flex items-baseline justify-between gap-2 text-xs border-b border-[var(--border-subtle)] pb-1">
+            <span className="text-[var(--text-3)] font-mono">cv_parent</span>
+            <Link
+              className="text-[var(--accent-text)] font-mono hover:underline"
+              to={`/tasks/${encodeURIComponent(taskId)}/runs/${cvParentId}`}
+            >
+              run #{cvParentId}
+            </Link>
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -406,8 +569,11 @@ export function RunDetail() {
               <p className="text-xs font-medium text-[var(--text-2)] mb-4">
                 Loss Curve
                 <span className="text-[var(--text-3)] font-normal ml-2">{run.lossHistory!.length} epochs</span>
+                {(run.valLossHistory?.length ?? 0) > 0 && (
+                  <span className="text-[var(--text-3)] font-normal ml-2">· val overlay</span>
+                )}
               </p>
-              <LossCurve history={run.lossHistory!} />
+              <LossCurve history={run.lossHistory!} valHistory={run.valLossHistory} />
             </div>
           )}
           {hasMatrix && (
@@ -431,18 +597,20 @@ export function RunDetail() {
         </div>
       )}
 
-      {/* Hyperparams */}
-      <div className="card p-4">
-        <p className="text-xs font-medium text-[var(--text-2)] mb-3">Hyperparameters</p>
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-2">
-          {Object.entries(hp).map(([k, v]) => (
-            <div key={k} className="flex items-baseline justify-between gap-2 text-xs border-b border-[var(--border-subtle)] pb-1.5">
-              <span className="text-[var(--text-3)] font-mono">{k}</span>
-              <span className="text-[var(--text-1)] font-mono">{JSON.stringify(v)}</span>
-            </div>
-          ))}
-        </div>
+      {/* Training config */}
+      <div className="mb-4">
+        <TrainingConfigCard hp={hp as Record<string, unknown>} />
       </div>
+
+      {/* Run context */}
+      <RunContextCard
+        ctx={run.runContext}
+        datasetHash={run.datasetHash}
+        cvFoldId={run.cvFoldId}
+        cvParentId={run.cvParentId}
+        calibrationTemperature={run.calibrationTemperature}
+        taskId={taskId}
+      />
 
       {/* Confusion drill-through drawer */}
       <AnimatePresence>

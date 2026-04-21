@@ -16,11 +16,49 @@ interface LiveProgress {
   i: number | null
   n: number | null
   message: string | null
+  lossHistory: number[] | null
+  epochsDone: number | null
+}
+
+function formatEta(s: number): string {
+  if (!Number.isFinite(s) || s <= 0) return "—"
+  if (s < 60) return `${Math.round(s)}s`
+  const m = Math.floor(s / 60)
+  const sec = Math.round(s - m * 60)
+  return `${m}m${sec ? ` ${sec}s` : ""}`
+}
+
+// Tiny inline SVG sparkline — avoids a recharts import in the sidebar hot-path.
+function LossSparkline({ data, width = 120, height = 24 }: { data: number[]; width?: number; height?: number }) {
+  if (data.length < 2) return null
+  const min = Math.min(...data)
+  const max = Math.max(...data)
+  const range = Math.max(max - min, 1e-9)
+  const step = width / Math.max(data.length - 1, 1)
+  const pts = data.map((v, i) => {
+    const x = i * step
+    const y = height - ((v - min) / range) * height
+    return `${x.toFixed(1)},${y.toFixed(1)}`
+  }).join(" ")
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="flex-shrink-0" aria-hidden>
+      <polyline
+        fill="none"
+        stroke="var(--accent-text)"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        points={pts}
+      />
+    </svg>
+  )
 }
 
 export function ActiveRunCard({ taskId, runId, compact = false }: Props) {
   const [elapsed, setElapsed] = useState(0)
-  const [live, setLive] = useState<LiveProgress>({ stage: null, i: null, n: null, message: null })
+  const [live, setLive] = useState<LiveProgress>({
+    stage: null, i: null, n: null, message: null, lossHistory: null, epochsDone: null,
+  })
   const esRef = useRef<EventSource | null>(null)
 
   const { data: run } = useQuery({
@@ -47,12 +85,17 @@ export function ActiveRunCard({ taskId, runId, compact = false }: Props) {
 
     const onMsg = (e: MessageEvent) => {
       try {
-        const d = JSON.parse(e.data) as { stage?: string; i?: number; n?: number; message?: string }
+        const d = JSON.parse(e.data) as {
+          stage?: string; i?: number; n?: number; message?: string
+          lossHistory?: number[]; epochsDone?: number
+        }
         setLive({
           stage: d.stage ?? null,
           i: d.i ?? null,
           n: d.n ?? null,
           message: d.message ?? null,
+          lossHistory: d.lossHistory ?? null,
+          epochsDone: d.epochsDone ?? null,
         })
       } catch {}
     }
@@ -70,8 +113,21 @@ export function ActiveRunCard({ taskId, runId, compact = false }: Props) {
   const message = live.message ?? run.runProgress?.message ?? null
   const i = live.i ?? run.runProgress?.i ?? null
   const n = live.n ?? run.runProgress?.n ?? null
-  const hp = run.hyperparams as { lr?: number; epochs?: number }
+  const hp = run.hyperparams as { lr?: number; epochs?: number; lr_schedule?: string }
   const hasProgress = i != null && n != null && n > 0
+
+  const lossHistory = live.lossHistory ?? run.runProgress?.lossHistory ?? null
+  const hasLoss = (lossHistory?.length ?? 0) >= 2
+  const lastLoss = lossHistory && lossHistory.length > 0 ? lossHistory[lossHistory.length - 1]! : null
+  const epochsDone = live.epochsDone ?? run.runProgress?.epochsDone ?? null
+
+  // ETA: prefer epochsDone + total epochs; fall back to i/n stage progress.
+  let etaS: number | null = null
+  if (elapsed > 0 && epochsDone != null && epochsDone > 0 && hp.epochs != null && hp.epochs > epochsDone) {
+    etaS = (elapsed / epochsDone) * (hp.epochs - epochsDone)
+  } else if (elapsed > 0 && hasProgress && i! > 0) {
+    etaS = (elapsed / i!) * (n! - i!)
+  }
 
   if (compact) {
     return (
@@ -107,12 +163,17 @@ export function ActiveRunCard({ taskId, runId, compact = false }: Props) {
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-[var(--accent)] animate-pulse flex-shrink-0" />
           <span className="text-xs font-medium text-[var(--accent-text)] capitalize">{stage ?? "training"}</span>
-          {stage === "train" && !hasProgress && (
-            <span className="text-2xs text-[var(--text-3)]">(Rust — opaque)</span>
+          {stage === "train" && !hasProgress && !hasLoss && (
+            <span className="text-2xs text-[var(--text-3)]">warming up…</span>
           )}
         </div>
         <div className="flex items-center gap-3">
           <span className="stat-num text-xs text-[var(--text-3)]">{elapsed}s</span>
+          {etaS != null && (
+            <span className="stat-num text-xs text-[var(--text-3)]" title="estimated time remaining">
+              eta {formatEta(etaS)}
+            </span>
+          )}
           <Link
             to={`/tasks/${encodeURIComponent(taskId)}/runs/${runId}`}
             className="text-2xs text-[var(--accent-text)] hover:underline"
@@ -143,17 +204,35 @@ export function ActiveRunCard({ taskId, runId, compact = false }: Props) {
         <p className="text-2xs text-[var(--text-3)] mb-2 truncate">{message}</p>
       )}
 
+      {/* Live loss sparkline */}
+      {hasLoss && lossHistory && (
+        <div className="flex items-center gap-3 mb-2">
+          <LossSparkline data={lossHistory} width={140} height={28} />
+          <div className="flex flex-col leading-tight">
+            <span className="text-2xs text-[var(--text-3)] font-mono">loss</span>
+            <span className="text-xs text-[var(--text-1)] font-mono">{lastLoss?.toFixed(5)}</span>
+          </div>
+          {epochsDone != null && hp.epochs != null && (
+            <div className="flex flex-col leading-tight ml-auto">
+              <span className="text-2xs text-[var(--text-3)] font-mono">epoch</span>
+              <span className="text-xs text-[var(--text-1)] font-mono">{epochsDone}/{hp.epochs}</span>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Hyperparams */}
       <div className="flex items-center gap-3 text-2xs text-[var(--text-3)] font-mono">
         {hp.lr != null && <span>lr {hp.lr}</span>}
+        {hp.lr_schedule && <span>sched {hp.lr_schedule}</span>}
         {hp.epochs != null && <span>{hp.epochs} epochs</span>}
         <span
           className={clsx(
             "ml-auto",
-            stage === "train" && !hasProgress ? "animate-pulse" : ""
+            stage === "train" && !hasProgress && !hasLoss ? "animate-pulse" : ""
           )}
         >
-          {stage === "train" && !hasProgress ? "training…" : ""}
+          {stage === "train" && !hasProgress && !hasLoss ? "training…" : ""}
         </span>
       </div>
     </div>

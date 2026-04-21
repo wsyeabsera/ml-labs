@@ -8,6 +8,7 @@ import { existsSync, appendFileSync, mkdirSync } from "node:fs"
 import { parse as parseCsv } from "csv-parse/sync"
 import { listTasks, getTask, createTask, updateTaskFeatureNames, updateTaskLabels, deleteTask } from "./core/db/tasks"
 import { listRuns, listAllRuns, getRun } from "./core/db/runs"
+import { listAutoRuns, getAutoRun } from "./core/db/auto"
 import { sampleCounts, splitCounts, insertSamplesBatch, deleteAllSamples } from "./core/db/samples"
 import { deleteRegisteredModel } from "./core/db/models"
 import { countRuns } from "./core/db/runs"
@@ -25,7 +26,7 @@ import { db } from "./core/db/schema"
 
 const PORT = parseInt(process.env.NEURON_API_PORT ?? "2626")
 const DIST = process.env.DASHBOARD_DIST ?? join(import.meta.dir, "../../dashboard/dist")
-const VERSION = "1.0.0"
+const VERSION = "1.0.1"
 const DB_DIR = (() => {
   const db = process.env.NEURON_DB
   return db ? join(db, "..") : join(import.meta.dir, "../../data")
@@ -414,12 +415,15 @@ function handleRun(id: number): Response {
     id: r.id, taskId: r.taskId, status: r.status, hyperparams: r.hyperparams,
     accuracy: r.accuracy, valAccuracy: r.valAccuracy,
     perClassAccuracy: r.perClassAccuracy, confusionMatrix: r.confusionMatrix,
-    lossHistory: r.lossHistory, mae: r.mae, rmse: r.rmse, r2: r.r2,
+    lossHistory: r.lossHistory,
+    valLossHistory: r.valLossHistory,
+    mae: r.mae, rmse: r.rmse, r2: r.r2,
     sampleCounts: r.sampleCounts, runProgress: r.runProgress,
     startedAt: r.startedAt, finishedAt: r.finishedAt,
     durationS: r.startedAt && r.finishedAt ? r.finishedAt - r.startedAt : null,
     runContext: r.runContext, datasetHash: r.datasetHash,
     cvFoldId: r.cvFoldId, cvParentId: r.cvParentId,
+    calibrationTemperature: r.calibrationTemperature,
   })
 }
 
@@ -1062,6 +1066,53 @@ async function handlePostResponse(requestId: number, req: Request): Promise<Resp
   return json({ ok: true })
 }
 
+// ── Auto-run routes ───────────────────────────────────────────────────────────
+
+function handleAutoRuns(url: URL): Response {
+  const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "50") || 50, 200)
+  const offset = parseInt(url.searchParams.get("offset") ?? "0") || 0
+  const taskId = url.searchParams.get("task") ?? undefined
+  const runs = listAutoRuns(limit, offset, taskId)
+  // Summary payload: elide decision_log here to keep the list light.
+  const items = runs.map((r) => ({
+    id: r.id,
+    taskId: r.task_id,
+    status: r.status,
+    startedAt: r.started_at,
+    finishedAt: r.finished_at,
+    accuracyTarget: r.accuracy_target,
+    budgetS: r.budget_s,
+    maxWaves: r.max_waves,
+    wavesUsed: r.waves_used,
+    winnerRunId: r.winner_run_id,
+    finalAccuracy: r.final_accuracy,
+    verdict: r.verdict,
+    verdictJson: r.verdict_json,
+  }))
+  return json({ autoRuns: items })
+}
+
+function handleAutoRun(id: number): Response {
+  const r = getAutoRun(id)
+  if (!r) return err(`Auto-run ${id} not found`, 404)
+  return json({
+    id: r.id,
+    taskId: r.task_id,
+    status: r.status,
+    startedAt: r.started_at,
+    finishedAt: r.finished_at,
+    accuracyTarget: r.accuracy_target,
+    budgetS: r.budget_s,
+    maxWaves: r.max_waves,
+    wavesUsed: r.waves_used,
+    winnerRunId: r.winner_run_id,
+    finalAccuracy: r.final_accuracy,
+    verdict: r.verdict,
+    verdictJson: r.verdict_json,
+    decisionLog: r.decision_log,
+  })
+}
+
 // ── SSE: live run progress ─────────────────────────────────────────────────────
 
 function handleRunEvents(runId: number): Response {
@@ -1212,6 +1263,10 @@ Bun.serve({
 
     const runMatch = path.match(/^\/api\/runs\/(\d+)$/)
     if (runMatch && req.method === "GET")        return handleRun(parseInt(runMatch[1]!))
+
+    if (path === "/api/auto" && req.method === "GET") return handleAutoRuns(url)
+    const autoRunMatch = path.match(/^\/api\/auto\/(\d+)$/)
+    if (autoRunMatch && req.method === "GET")    return handleAutoRun(parseInt(autoRunMatch[1]!))
 
     const runEventsMatch = path.match(/^\/api\/runs\/(\d+)\/events$/)
     if (runEventsMatch && req.method === "GET")  return handleRunEvents(parseInt(runEventsMatch[1]!))

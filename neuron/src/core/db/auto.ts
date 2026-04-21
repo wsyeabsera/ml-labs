@@ -7,6 +7,15 @@ export interface AutoLogEntry {
   payload?: unknown
 }
 
+export interface AutoVerdict {
+  status?: string
+  winner?: { run_id?: number; metric_value?: number; metric_name?: string; is_overfit?: boolean; confidence?: string }
+  attempted?: { configs_tried?: number; waves_used?: number; wall_clock_s?: number }
+  data_issues?: string[]
+  next_steps?: string[]
+  [k: string]: unknown
+}
+
 export interface AutoRun {
   id: number
   task_id: string
@@ -21,13 +30,25 @@ export interface AutoRun {
   final_accuracy: number | null
   decision_log: AutoLogEntry[]
   verdict: string | null
+  verdict_json: AutoVerdict | null
   coordinator_pid: number | null
 }
 
-type RawAutoRun = Omit<AutoRun, "decision_log"> & { decision_log: string }
+type RawAutoRun = Omit<AutoRun, "decision_log" | "verdict_json"> & {
+  decision_log: string
+  verdict_json: string | null
+}
 
 function parse(row: RawAutoRun): AutoRun {
-  return { ...row, decision_log: JSON.parse(row.decision_log ?? "[]") }
+  let verdictJson: AutoVerdict | null = null
+  if (row.verdict_json) {
+    try { verdictJson = JSON.parse(row.verdict_json) as AutoVerdict } catch { /* malformed → null */ }
+  }
+  return {
+    ...row,
+    decision_log: JSON.parse(row.decision_log ?? "[]"),
+    verdict_json: verdictJson,
+  }
 }
 
 export function createAutoRun(
@@ -101,4 +122,13 @@ export function getLatestAutoRunForTask(task_id: string): AutoRun | null {
     .query(`SELECT * FROM auto_runs WHERE task_id = ? ORDER BY started_at DESC LIMIT 1`)
     .get(task_id) as RawAutoRun | null
   return row ? parse(row) : null
+}
+
+export function listAutoRuns(limit = 50, offset = 0, task_id?: string): AutoRun[] {
+  const rows = task_id
+    ? (db.query(`SELECT * FROM auto_runs WHERE task_id = ? ORDER BY started_at DESC LIMIT ? OFFSET ?`)
+        .all(task_id, limit, offset) as RawAutoRun[])
+    : (db.query(`SELECT * FROM auto_runs ORDER BY started_at DESC LIMIT ? OFFSET ?`)
+        .all(limit, offset) as RawAutoRun[])
+  return rows.map(parse)
 }

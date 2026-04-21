@@ -4,6 +4,53 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v1.0.1 — 2026-04-21
+
+**Dashboard detail pass.** Phases 2–8 shipped rich backend state (run_context, dataset_hash, calibration temperature, all Phase 3 hyperparams, auto-run decision_log + verdict_json, drift reports) — but the dashboard was largely v0.7-era. This release surfaces what was already stored.
+
+### Added — Phase 7.6 (dashboard detail pass)
+
+- **Live training details in `ActiveRunCard`**:
+  - Inline SVG loss sparkline streams from `runProgress.lossHistory`.
+  - ETA computed from epochs done × elapsed / remaining (falls back to `i/n` stage progress).
+  - Per-epoch LR-schedule chip (shows `sched cosine`, `sched linear_warmup`, etc. when set).
+  - Removed the stale "Rust — opaque" note now that rs-tensor emits progress.
+- **Enriched `RunDetail`**:
+  - New **Training config** card — all hyperparams grouped by domain (core / optimizer / LR schedule / regularization / activation·loss / SWA·early-stop / other).
+  - New **Run context** card — neuron version, git SHA, rs-tensor SHA, hostname, rng seed, dataset hash (click to copy full value), cv_fold / cv_parent links, calibration temperature.
+  - **Val-loss overlay** on the loss curve when `valLossHistory` is present (dashed amber line).
+- **New Auto-run pages**:
+  - `/auto` — list of all auto_train invocations (newest first) with status, target vs final accuracy, waves used, wall-clock.
+  - `/auto/:id` — detail page with decision_log timeline (stage-grouped icons: preflight / seed / wave_N / diagnose / promote), structured `verdict_json` breakdown (data issues, suggested next steps, attempted stats, winner card with overfit + confidence flags).
+  - Sidebar "Auto-runs" entry between Sweep and Upload.
+- **Predict calibration badge** — `calibrated` chip shown next to predicted label when temperature scaling was applied.
+- **ActivityFeed event coverage** — new handlers + icons + labels for `calibrated`, `drift_detected`, `sweep_wave_started`, `sweep_wave_completed`, `auto_collect_start`, `auto_collect_added`. Auto-train events deep-link to `/auto/:id`.
+
+### API
+
+- `GET /api/auto` — list auto_runs (params: `task`, `limit`, `offset`).
+- `GET /api/auto/:id` — auto_run detail with full `decision_log`.
+- `GET /api/runs/:id` — response extended with `valLossHistory` and `calibrationTemperature`.
+
+### Tests
+
+- Dashboard `tsc -b && vite build` clean.
+- Neuron `tsc --noEmit` clean.
+- Bench Δ=+0.000 on metrics (iris=1.000, wine=1.000 match baseline). Additions are purely surfacing — no training-path changes.
+
+### Deferred
+
+- Sweep wave markers — would require new API plumbing for limited payoff; wave-source concept lives in auto_train and is now surfaced on `/auto/:id`.
+- HP-importance chart, run tags/notes/search, prediction-log history view, Registry/serving UI, TaskDetail cross-task pattern match.
+
+### Upgrade
+
+```bash
+ml-labs update
+```
+
+---
+
 ## v1.0.0 — 2026-04-21 🎉
 
 **The 1.0 milestone.** ml-labs is now a production platform: train → publish → serve over HTTP → monitor for drift → retrain. Eight ROADMAP phases shipped in sequence; this release closes Phase 8 (production story MVP).

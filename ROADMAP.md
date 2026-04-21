@@ -583,6 +583,30 @@ Our 5-dataset bench hits the target in wave 1 thanks to the Phase 3 modern seed 
 
 ---
 
+## Phase 7.6 (new) — Dashboard detail pass
+
+**Status**: ✅ **Shipped as v1.0.1 on 2026-04-21.**
+
+**Goal**: Surface the rich backend state (Phases 2–8) that the v0.7-era dashboard was hiding.
+
+**What shipped**:
+- **`ActiveRunCard`** — live loss sparkline (inline SVG, ~20 lines, no recharts in hot path), ETA from epochs done, LR-schedule chip.
+- **`RunDetail`** — grouped Training Config card (core/optimizer/LR schedule/regularization/activation·loss/SWA·early-stop), Run Context card (neuron/git/rs-tensor SHAs with copy-to-clipboard, dataset_hash, cv_fold + cv_parent links, calibration_T), val-loss overlay on the loss curve.
+- **Auto-run pages** — new `/auto` list + `/auto/:id` detail with decision_log timeline and verdict_json breakdown (data_issues, next_steps, attempted, winner-overfit + confidence flags). Sidebar nav entry.
+- **Predict** — `calibrated` badge in prediction card when temperature scaling applied.
+- **ActivityFeed** — handlers + icons + labels for `calibrated`, `drift_detected`, `sweep_wave_*`, `auto_collect_*`; auto-run deep links.
+- **API** — `GET /api/auto` + `GET /api/auto/:id`; `GET /api/runs/:id` extended with `valLossHistory` + `calibrationTemperature`.
+
+**Scope deltas**:
+- **Sweep wave markers dropped** — source/rules_fired metadata lives only in auto_train; generic run_sweep has no wave-source concept. The wave story is richer on `/auto/:id`, which made Sweep enrichment unnecessary duplication.
+- Still deferred: HP-importance chart, run tags/notes/search, prediction-log history view, Registry/serving UI, TaskDetail cross-task pattern match.
+
+**Verification**: dashboard `tsc -b && vite build` clean, neuron `tsc --noEmit` clean, bench metrics Δ=+0.000 (iris=1.000, wine=1.000 match baseline). Changes are pure surfacing — no training-path code touched.
+
+**Time**: ~1.5 hours.
+
+---
+
 ## Phase 8 — Production Story (serving, drift, monitoring)
 
 **Status**: ✅ **Shipped as v1.0.0 on 2026-04-21.** MVP (serving + logging + drift detection + drift dashboard); shadow/canary + auto-retrain banner deferred to Phase 8.5. See retro.
