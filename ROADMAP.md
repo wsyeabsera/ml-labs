@@ -26,6 +26,8 @@ Every phase has the same skeleton:
 
 ## Phase 1 — Test & Benchmark Foundation
 
+**Status**: ✅ **Shipped as v0.7.0 on 2026-04-21.** See retro below.
+
 **Goal**: Prevent silent regressions. Give us a safety net before we touch anything that matters.
 
 ### Scope
@@ -70,6 +72,25 @@ Every phase has the same skeleton:
 ### Ships as
 
 **v0.7.0**. No user-visible features, so minor bump rather than patch — clear signal that the underlying contract is stronger now.
+
+### Retro (2026-04-21)
+
+**Shipped as planned.** Unit tests: 90 pass across 6 files in 35 ms. Full benchmark suite runs in ~3 s deterministic (seed=42, rules-only planner, sequential sweep).
+
+**Baselines committed** (`neuron/test/bench/results/baseline.json`):
+- iris: accuracy 0.967 (5 configs, 2 waves)
+- wine: accuracy 0.993 (3 configs, 1 wave)
+- breast-cancer: accuracy 0.969 (3 configs, 1 wave)
+- housing: R² 0.890 (3 configs, 1 wave)
+
+**Real bug caught by the first bench run**: for regression tasks, `computeDataHealth` was treating each unique target value as a "class" — a housing CSV with 70 unique prices produced `K=70`, leading `auto_train` to build a `[D, 32, 70]` head for a single-output regression. Runaway CPU, meaningless outputs. Fixed to force `K=1` for regression; new test `data-health.test.ts` guards against it.
+
+**Scope deltas from the plan**:
+- Shipped 4 datasets (iris, wine, breast-cancer, housing) instead of 5 — digits deferred because our current full-batch SGD is too slow on 64-dim × 1797-sample data; will re-add once Phase 3 lands mini-batch.
+- Added `NEURON_SWEEP_MODE=sequential` (not in the original plan) — needed to eliminate Claude sub-agents from the bench path. Cleanly isolates benchmark determinism from production behavior.
+- Skipped a dedicated GitHub Actions workflow; `bun run ci` locally is the DoD escape hatch in the original plan.
+
+**Time**: ~2 hours.
 
 ---
 

@@ -1,6 +1,6 @@
 {
   "name": "@neuron/mcp",
-  "version": "0.6.2",
+  "version": "0.7.0",
   "description": "Universal Claude-native ML platform as an MCP server",
   "type": "module",
   "bin": {
@@ -11,7 +11,12 @@
     "dev": "bun --hot src/server.ts",
     "tui": "bun src/tui/index.tsx",
     "build": "bun build src/server.ts src/tui/index.tsx --outdir dist --target bun --minify --external react-devtools-core",
-    "typecheck": "bun run tsc --noEmit"
+    "typecheck": "bun run tsc --noEmit",
+    "test": "bun test test/unit",
+    "bench": "bun run test/bench/run.ts",
+    "bench:fast": "bun run test/bench/run.ts iris wine",
+    "bench:bless": "bun run test/bench/run.ts --bless",
+    "ci": "bun run typecheck && bun run test"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.114",

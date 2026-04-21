@@ -18,6 +18,8 @@ export interface StartTrainArgs {
   epochs?: number
   headArch?: number[]
   classWeights?: "balanced"
+  weightDecay?: number
+  earlyStopPatience?: number
 }
 
 export async function startTrainBackground(args: StartTrainArgs): Promise<{ runId: number }> {
@@ -47,7 +49,12 @@ export async function startTrainBackground(args: StartTrainArgs): Promise<{ runI
   const headArchFn = config?.headArchitecture ?? ((k: number, d: number) => [d, Math.max(d, 32), k])
   const headArch = args.headArch ?? headArchFn(K, D)
 
-  const run = createRun(args.taskId, { lr, epochs, headArch, classWeights: args.classWeights })
+  const run = createRun(args.taskId, {
+    lr, epochs, headArch,
+    classWeights: args.classWeights,
+    ...(args.weightDecay !== undefined ? { weightDecay: args.weightDecay } : {}),
+    ...(args.earlyStopPatience !== undefined ? { earlyStopPatience: args.earlyStopPatience } : {}),
+  })
   const ac = new AbortController()
   setActiveRun(args.taskId, run.id, ac)
 
@@ -63,7 +70,11 @@ export async function startTrainBackground(args: StartTrainArgs): Promise<{ runI
         labels: labelNames,
         featurize: async (s) => (s as { features: number[] }).features,
         headArch: () => headArch,
-        hyperparams: { lr, epochs },
+        hyperparams: {
+          lr, epochs,
+          ...(args.weightDecay !== undefined ? { weightDecay: args.weightDecay } : {}),
+          ...(args.earlyStopPatience !== undefined ? { earlyStopPatience: args.earlyStopPatience } : {}),
+        },
         runId: run.id,
         isRegression,
         normalize: task.normalize,

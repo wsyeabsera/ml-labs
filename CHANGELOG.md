@@ -4,6 +4,34 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v0.7.0 — 2026-04-21
+
+### Added — Phase 1 (test & benchmark foundation)
+- **Seedable RNG** (`neuron/src/util/rng.ts`): mulberry32 with shuffle helper. When `load_csv` receives a `seed` param (or the `NEURON_SEED` env var is set), the stratified train/test split becomes fully reproducible. Fall-through to `Math.random` when unseeded.
+- **`seed` param** on `load_csv`, `auto_train`, and `train` tools.
+- **`NEURON_PLANNER=rules` env var**: forces the controller to skip the Claude planner and use only the deterministic `refineFromSignals` rules. Used by benchmarks and CI.
+- **`NEURON_SWEEP_MODE=sequential` env var**: sweep runs via `startTrainBackground` sequentially, no Claude sub-agents. Combined with `NEURON_PLANNER=rules`, gives fully deterministic `auto_train` output.
+- **Unit test suite** under `neuron/test/unit/` (85 tests, 2562 assertions, runs in < 40 ms):
+  - `rng.test.ts` — determinism, shuffle invariants, seed resolution
+  - `signals.test.ts` — convergence_epoch, still_improving, per_class_variance, severityForMetric
+  - `rules.test.ts` — each refinement rule (A/B/C/D/E) + seed wave + fallback + regression branch
+  - `patterns.test.ts` — fingerprint buckets, save→lookup round-trip, highest-metric wins
+  - `verdict.test.ts` — scoreClassification with/without overfit penalty, scoreRegression, summary rendering
+- **Benchmark harness** under `neuron/test/bench/`:
+  - Datasets: iris, wine, breast-cancer, housing
+  - `bun run bench` — full suite; `bun run bench:fast` — iris + wine only; `bun run bench:bless` — (re)write baseline
+  - Deterministic: forces `NEURON_PLANNER=rules` + `NEURON_SWEEP_MODE=sequential` + seed=42
+  - Regression guard: fails if accuracy drops > 2% (or R² drops > 0.03) vs committed `test/bench/results/baseline.json`
+- **Package scripts**: `test`, `bench`, `bench:fast`, `bench:bless`, `ci` (typecheck + unit tests).
+- **`bunfig.toml`** preload for unit tests — each worker gets a unique temp DB.
+
+### Refactors (enable testability; no behavior change)
+- `computeConvergenceEpoch`, `computeStillImproving`, `computePerClassVariance` are now exported from `signals.ts`.
+- `scoreClassification` and `scoreRegression` moved from `controller.ts` → `verdict.ts`.
+- `startTrainBackground` accepts `weightDecay` and `earlyStopPatience` params (plumb-through for deterministic benchmarks that want to exercise every lever).
+
+---
+
 ## v0.6.2 — 2026-04-20
 
 ### Changed

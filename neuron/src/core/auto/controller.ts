@@ -1,6 +1,7 @@
 import { recordEvent } from "../db/events"
 import { appendAutoLog, getAutoRun, updateAutoRun, type AutoLogEntry } from "../db/auto"
 import { runSweep } from "../sweep/orchestrator"
+import { runSweepSequential } from "../sweep/sequential"
 import type { SweepConfig } from "../sweep/configs"
 import { collectSignals, computeDataHealth, type RunSignals } from "./signals"
 import { refineFromSignals, shouldContinue } from "./rules"
@@ -181,9 +182,12 @@ export async function runController(args: ControllerArgs): Promise<ControllerRes
       },
     })
 
-    // Run sweep (parallel via existing sub-agent infra)
+    // Run sweep — sequential for benchmarks/CI (no Claude sub-agents),
+    // parallel via existing sub-agent infra otherwise.
     const waveT0 = Date.now()
-    const results = await runSweep(args.task_id, plan.configs, 3, ac.signal)
+    const results = process.env.NEURON_SWEEP_MODE === "sequential"
+      ? await runSweepSequential(args.task_id, plan.configs, ac.signal)
+      : await runSweep(args.task_id, plan.configs, 3, ac.signal)
     waveDurationsS.push(Math.round((Date.now() - waveT0) / 1000))
     const completedRunIds = results.filter((r) => r.status === "completed" && r.run_id != null).map((r) => r.run_id!)
     const failedCount = results.filter((r) => r.status === "failed").length

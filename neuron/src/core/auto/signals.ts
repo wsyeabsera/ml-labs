@@ -52,7 +52,12 @@ export function computeDataHealth(task_id: string): DataHealth {
   if (!task) throw new Error(`Task "${task_id}" not found`)
   const counts = sampleCounts(task_id)
   const n = Object.values(counts).reduce((a, b) => a + b, 0)
-  const k = Object.keys(counts).length
+  // For regression, K is always 1 (single continuous output). `sampleCounts`
+  // groups by the raw label column, which for regression is the target value —
+  // treating those as classes would give huge spurious K values (every unique
+  // price = one "class"), which then propagates into `headArch=[D, H, K]` and
+  // builds a massively oversized regression head.
+  const k = task.kind === "regression" ? 1 : Object.keys(counts).length
   const d = task.featureShape[0] ?? 1
 
   let imbalance_ratio: number | null = null

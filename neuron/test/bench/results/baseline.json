@@ -1,0 +1,34 @@
+{
+  "generated_at": "2026-04-21T09:51:26.565Z",
+  "neuron_version": "0.7.0",
+  "entries": {
+    "iris": {
+      "metric_name": "accuracy",
+      "metric_value": 0.9666666666666667,
+      "waves_used": 2,
+      "configs_tried": 5,
+      "wall_clock_s": 1
+    },
+    "wine": {
+      "metric_name": "accuracy",
+      "metric_value": 0.9929577464788732,
+      "waves_used": 1,
+      "configs_tried": 3,
+      "wall_clock_s": 1
+    },
+    "breast-cancer": {
+      "metric_name": "accuracy",
+      "metric_value": 0.9692982456140351,
+      "waves_used": 1,
+      "configs_tried": 3,
+      "wall_clock_s": 1
+    },
+    "housing": {
+      "metric_name": "r2",
+      "metric_value": 0.8895308290548566,
+      "waves_used": 1,
+      "configs_tried": 3,
+      "wall_clock_s": 1
+    }
+  }
+}
