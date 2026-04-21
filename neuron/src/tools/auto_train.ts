@@ -52,6 +52,17 @@ export const schema = {
     .int()
     .optional()
     .describe("Deterministic seed threaded through the controller. When combined with NEURON_PLANNER=rules, produces identical output across runs. Primarily for benchmarks and reproducibility."),
+  auto_collect: z
+    .boolean()
+    .default(false)
+    .describe("Active-learning loop (Phase 7): after training, if accuracy < target AND neuron.config.ts has a `collect` callback, invoke it to gather new samples and re-train. Up to `max_collect_rounds` iterations. No-op without a callback."),
+  max_collect_rounds: z
+    .number()
+    .int()
+    .min(1)
+    .max(5)
+    .default(2)
+    .describe("Max active-learning rounds when auto_collect=true (default 2)."),
 }
 
 export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
@@ -80,6 +91,8 @@ export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
     publish_version: args.publish_version ?? new Date().toISOString().slice(0, 10),
     tournament: args.tournament,
     seed: args.seed,
+    auto_collect: args.auto_collect,
+    max_collect_rounds: args.max_collect_rounds,
   })
 
   recordEvent({ source: "mcp", kind: "auto_completed", taskId: args.task_id, payload: { autoRunId: autoRun.id, status: result.status, runId: result.run_id, accuracy: result.accuracy, wallClockS: result.wall_clock_s } })

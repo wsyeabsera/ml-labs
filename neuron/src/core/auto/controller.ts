@@ -12,6 +12,7 @@ import { recordRulesFired, recordRulesProducedWinner, formatRuleStatsForPrompt }
 import { runDiagnoser, shouldDiagnose } from "./diagnoser"
 import { getRun } from "../db/runs"
 import { getTask } from "../db/tasks"
+import { loadConfig } from "../../adapter/loader"
 import {
   saveVerdictJson,
   verdictSummaryOneLiner,
@@ -36,6 +37,8 @@ export interface ControllerArgs {
   publish_version?: string
   tournament?: boolean
   seed?: number
+  auto_collect?: boolean
+  max_collect_rounds?: number
 }
 
 export interface ControllerResult {
@@ -318,6 +321,122 @@ export async function runController(args: ControllerArgs): Promise<ControllerRes
   }
 
   clearTimeout(budgetTimer)
+
+  // Step 3.5: active-learning auto-collect loop (opt-in, Phase 7).
+  // Only fires when: flag is on, config has a collect() callback, target not hit,
+  // and we have rounds remaining. Each round: suggest → collect → insert → 1 wave.
+  if (args.auto_collect && !isRegression) {
+    const config = await loadConfig()
+    if (typeof config?.collect === "function") {
+      const maxRounds = args.max_collect_rounds ?? 2
+      const { handler: suggestHandler } = await import("../../tools/suggest_samples")
+      const { insertSamplesBatch } = await import("../db/samples")
+
+      for (let round = 0; round < maxRounds && !ac.signal.aborted; round++) {
+        // Check if we've already hit target.
+        const bestSoFar = allRunSignals.reduce<RunSignals | null>(
+          (acc, r) => (acc == null || (r.metric ?? -Infinity) > (acc.metric ?? -Infinity)) ? r : acc,
+          null,
+        )
+        if ((bestSoFar?.metric ?? -Infinity) >= args.accuracy_target) {
+          log(args.auto_run_id, "auto_collect_skip", `target reached at round ${round}; stopping`)
+          break
+        }
+
+        log(args.auto_run_id, "auto_collect_start", `round ${round + 1}/${maxRounds}`)
+        recordEvent({
+          source: "mcp", kind: "auto_collect_start", taskId: args.task_id,
+          payload: { auto_run_id: args.auto_run_id, round: round + 1 },
+        })
+
+        // 1. Ask for uncertain+diverse samples (active learning).
+        let suggestion: Awaited<ReturnType<typeof suggestHandler>> & Record<string, unknown>
+        try {
+          suggestion = await suggestHandler({
+            task_id: args.task_id, n_suggestions: 10, confidence_threshold: 0.7,
+          }) as Awaited<ReturnType<typeof suggestHandler>> & Record<string, unknown>
+        } catch (e) {
+          log(args.auto_run_id, "auto_collect_failed", `suggest_samples error: ${e instanceof Error ? e.message : String(e)}`)
+          break
+        }
+
+        // 2. Invoke the user's collect callback.
+        let collected: Array<{ label: string; features: number[]; raw?: unknown }>
+        try {
+          collected = await config.collect({
+            uncertain_samples: (suggestion.uncertain_samples ?? []) as Array<{
+              sample_id: number; true_label: string; predicted_label: string
+              confidence: number; features: number[]
+            }>,
+            recommendations: (suggestion.recommendations ?? []) as string[],
+            per_class: (suggestion.per_class ?? []) as Array<{ label: string; count: number; accuracy: number }>,
+          })
+        } catch (e) {
+          log(args.auto_run_id, "auto_collect_failed", `collect() error: ${e instanceof Error ? e.message : String(e)}`)
+          break
+        }
+
+        if (collected.length === 0) {
+          log(args.auto_run_id, "auto_collect_empty", `round ${round + 1}: collect() returned 0 samples; stopping`)
+          break
+        }
+
+        // 3. Insert into the DB as train samples.
+        insertSamplesBatch(collected.map((s) => ({
+          taskId: args.task_id, label: s.label, features: s.features,
+          raw: s.raw, split: "train",
+        })))
+        log(args.auto_run_id, "auto_collect_added", `+${collected.length} samples`)
+        recordEvent({
+          source: "mcp", kind: "auto_collect_added", taskId: args.task_id,
+          payload: { auto_run_id: args.auto_run_id, round: round + 1, added: collected.length },
+        })
+
+        // 4. Run ONE more refinement wave on the augmented data.
+        const bundle = collectSignals({
+          task_id: args.task_id,
+          task_kind: args.task_kind,
+          target_value: args.accuracy_target,
+          current_wave_run_ids: lastWaveRunIds,
+          waves_done: wavesDone,
+          budget_s: args.budget_s,
+          budget_used_s: elapsed(),
+        })
+        const extraPlan = refineFromSignals(bundle)
+        recordRulesFired(extraPlan.rules_fired, fingerprint)
+        const extraResults = process.env.NEURON_SWEEP_MODE === "sequential"
+          ? await runSweepSequential(args.task_id, extraPlan.configs, ac.signal)
+          : await runSweep(args.task_id, extraPlan.configs, 3, ac.signal)
+        const extraCompletedIds = extraResults
+          .filter((r) => r.status === "completed" && r.run_id != null)
+          .map((r) => r.run_id!)
+        for (const id of extraCompletedIds) runIdToRules.set(id, extraPlan.rules_fired)
+        allRunIds.push(...extraCompletedIds)
+
+        const extraBundle = collectSignals({
+          task_id: args.task_id,
+          task_kind: args.task_kind,
+          target_value: args.accuracy_target,
+          current_wave_run_ids: extraCompletedIds,
+          waves_done: wavesDone,
+          budget_s: args.budget_s,
+          budget_used_s: elapsed(),
+        })
+        allRunSignals.push(...extraBundle.current_wave)
+        lastWaveRunIds = extraCompletedIds
+
+        const bestAfter = extraBundle.current_wave.reduce<RunSignals | null>(
+          (acc, r) => (acc == null || (r.metric ?? -Infinity) > (acc.metric ?? -Infinity)) ? r : acc,
+          null,
+        )
+        log(args.auto_run_id, "auto_collect_round_done",
+          `round ${round + 1}: best ${metricName}=${bestAfter?.metric?.toFixed(3) ?? "n/a"}`)
+      }
+    } else {
+      log(args.auto_run_id, "auto_collect_no_callback",
+        "auto_collect=true but neuron.config.ts has no `collect` callback; skipping")
+    }
+  }
 
   // Step 4: pick overall winner
   const score = isRegression ? scoreRegression : scoreClassification

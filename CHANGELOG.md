@@ -4,6 +4,52 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v0.13.0 — 2026-04-21
+
+### Added — Phase 7A (active-learning backend)
+
+Phase 7 in the ROADMAP bundled active learning (backend) + dashboard UX. Shipping the backend half here; dashboard UX spun out to Phase 7.5 / Phase 8 with explicit retro notes.
+
+- **Hybrid uncertainty + diversity sampling** in `suggest_samples`:
+  - New `core/auto/coreset.ts`: `kCenterGreedy(points, k)` (greedy max-min Euclidean distance) + `hybridUncertaintyDiversity(features, uncertainty, k, mult=3)`.
+  - `suggest_samples` pipeline: top-3×K by entropy → k-center coreset → top-K ranked output. Avoids picking near-duplicates when many uncertain samples cluster in feature space.
+  - Fully backward compatible: existing callers see the same tool surface and sample shape; just smarter picks.
+- **`auto_train({ auto_collect: true })`**: opt-in active-learning loop.
+  - New `auto_train` params: `auto_collect: boolean` (default `false`) and `max_collect_rounds: number` (default `2`, max `5`).
+  - New `neuron.config.ts` extension point: optional `collect(input) => Promise<Sample[]>` where `input = { uncertain_samples, recommendations, per_class }`.
+  - Controller flow when enabled: after the main wave loop, if target not hit and `config.collect` exists, up to `max_collect_rounds` iterations of `suggest → collect() → insertSamplesBatch → one extra wave`.
+  - No-op when `auto_collect=false` (default) OR no `collect` callback — zero behavior change for existing callers.
+- **Typed active-learning types** in `adapter/types.ts`: `CollectRecommendation`, `CollectedSample`.
+
+### Integration test
+
+- `neuron/test/integration/active-learning.ts` — writes a temporary `neuron.config.ts` with a synthetic `collect()` that injects minority-class samples; runs `auto_train` with `auto_collect=true` and `accuracy_target=1.01` (unreachable, forces the loop to iterate).
+- Result: 40 samples added across 2 rounds on a 90%-minority-dropped iris.
+
+### Tests
+
+- +11 unit tests (coreset + hybrid): 166 total, ~150 ms.
+- Bench Δ=+0.000 across all 5 datasets.
+
+### Deferred (all dashboard work from original Phase 7)
+
+- Dashboard training-curves overlay → Phase 7.5 or folded into the dashboard pass.
+- Labeling UI → Phase 7.5.
+- Confusion matrix drill-through → Phase 7.5.
+- HP-importance chart → Phase 7.5.
+- Run tags / notes / search → Phase 7.5.
+- **MC-dropout** in rs-tensor → Phase 7.5. Softmax entropy on calibrated outputs is sufficient for our use case without the 2+ hours of Rust backward-pass work.
+
+### Upgrade
+
+```bash
+ml-labs update
+```
+
+TS-only; no rs-tensor rebuild.
+
+---
+
 ## v0.12.1 — 2026-04-21
 
 ### Added — Phase 6.5 (Phase 6 deferred items)

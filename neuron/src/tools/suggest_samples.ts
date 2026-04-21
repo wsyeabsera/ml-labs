@@ -4,6 +4,7 @@ import { getTask } from "../core/db/tasks"
 import { getSamplesByTask } from "../core/db/samples"
 import { rsTensor } from "../core/mcp_client"
 import { softmax, argmax } from "../core/metrics"
+import { hybridUncertaintyDiversity } from "../core/auto/coreset"
 
 export const name = "suggest_samples"
 export const description =
@@ -129,18 +130,37 @@ export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
 
   const overallAccuracy = sampleResults.filter((r) => r.correct).length / N
 
-  // Most uncertain / misclassified samples
-  const sortedByConfidence = [...sampleResults].sort((a, b) => a.confidence - b.confidence)
-  const uncertainSamples = sortedByConfidence
-    .filter((r) => r.confidence < args.confidence_threshold || !r.correct)
-    .slice(0, args.n_suggestions)
-    .map(({ sample_id, true_label, predicted_label, confidence, features }) => ({
-      sample_id,
-      true_label,
-      predicted_label,
-      confidence: Math.round(confidence * 1000) / 1000,
-      features,
-    }))
+  // Hybrid uncertainty + diversity ranking (Bahri & Jiang 2023).
+  // 1. Filter to candidates below confidence threshold OR misclassified.
+  // 2. Rank by entropy (uncertainty).
+  // 3. k-center coreset for diversity so we don't pick near-duplicates.
+  const candidates = sampleResults.filter(
+    (r) => r.confidence < args.confidence_threshold || !r.correct,
+  )
+  // If nothing's uncertain/wrong, fall back to the lowest-confidence N.
+  const pool = candidates.length >= args.n_suggestions
+    ? candidates
+    : [...sampleResults].sort((a, b) => a.confidence - b.confidence).slice(0, args.n_suggestions * 3)
+
+  const poolFeatures = pool.map((r) => r.features)
+  // Uncertainty score = entropy-like: -confidence (higher uncertainty = lower confidence).
+  const poolUncertainty = pool.map((r) => 1 - r.confidence)
+
+  const selectedLocal = hybridUncertaintyDiversity(
+    poolFeatures,
+    poolUncertainty,
+    args.n_suggestions,
+  )
+  const uncertainSamples = selectedLocal.map((localIdx) => {
+    const r = pool[localIdx]!
+    return {
+      sample_id: r.sample_id,
+      true_label: r.true_label,
+      predicted_label: r.predicted_label,
+      confidence: Math.round(r.confidence * 1000) / 1000,
+      features: r.features,
+    }
+  })
 
   // Build actionable recommendations
   const recommendations: string[] = []

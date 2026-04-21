@@ -481,6 +481,8 @@ Our 5-dataset bench hits the target in wave 1 thanks to the Phase 3 modern seed 
 
 ## Phase 7 — Active Learning Loop + Dashboard UX
 
+**Status**: 🟡 **Partial — backend shipped as v0.13.0 (Phase 7A) on 2026-04-21.** Dashboard UX spun out to Phase 7.5. See retro.
+
 **Goal**: Close the loop from "here's uncertain samples" to "here's a better model." Make the dashboard match the intelligence of the backend.
 
 ### Scope
@@ -536,6 +538,39 @@ Our 5-dataset bench hits the target in wave 1 thanks to the Phase 3 modern seed 
 ### Ships as
 
 **v0.13.0**. The "feels like a real ML platform" release.
+
+### Retro (2026-04-21)
+
+**Backend shipped as Phase 7A (v0.13.0); dashboard deferred to 7.5.**
+
+**Why split**: the original Phase 7 bundled two different themes (backend active-learning + dashboard UX). Based on pattern from prior phases where bundled scope caused blowouts, I split into Phase 7A (backend) and Phase 7.5 (dashboard). The backend primitives are self-contained and testable immediately; the dashboard work deserves its own focused pass.
+
+**What shipped in 7A**:
+- Hybrid uncertainty + diversity sampling (k-center coreset over top-uncertain candidates)
+- `auto_train({ auto_collect: true })` loop with `neuron.config.ts` `collect()` extension point
+- Integration test verified: 40 synthetic minority samples added across 2 rounds on a stress-test iris
+
+**Deferred to 7.5** (dashboard pass):
+- Training-curves overlay across runs (highest-leverage dashboard upgrade)
+- Labeling UI (active-learning UX closes the loop visually)
+- Confusion matrix drill-through
+- HP-importance chart
+- Run tags / notes / search
+
+**Permanently dropped in favor of softmax entropy**:
+- MC-dropout in rs-tensor — 2+ hours of Rust backward-pass refactor for marginal additional uncertainty signal. Softmax entropy on Phase-4-calibrated outputs is sufficient.
+
+**Time**: ~2 hours.
+
+---
+
+## Phase 7.5 (new) — Dashboard UX pass
+
+**Goal**: The dashboard catches up to the backend's intelligence. Spun out from Phase 7.
+
+**Scope**: training-curves overlay (compare up to 6 runs), confusion matrix drill-through, HP-importance chart, labeling UI (closes the active-learning loop visually), run tags/notes/search.
+
+**Not yet planned** — will be a separate phase file when we pick it up.
 
 ---
 
