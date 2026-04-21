@@ -4,6 +4,43 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v1.4.0 — 2026-04-21
+
+**Phase 10.6 — cancellable `auto_train` + zombie reaper.** Fixes a real pain point where cancelling an `auto_train` tool call on the client left the server churning — coordinator kept making Claude API calls, child runs stranded at `status="running"` forever, no way to stop short of killing the whole MCP server.
+
+### Added
+
+- **New MCP tool `cancel_auto_train`** — takes `task_id` OR `auto_run_id`, aborts the in-process coordinator (stops spawning new sub-agents, halts planner/tournament), force-transitions the auto_run row and any in-flight child runs to `cancelled`. Returns `{ok, auto_run_id, was_active, child_runs_cancelled, message}`.
+- **In-process coordinator registry** (`core/auto/registry.ts`): `runController` now registers itself on entry and deregisters on exit. External callers can look up active coordinators by `auto_run_id` or `task_id`.
+- **`cancel_training` gained a `force` flag** — when `run_id` is provided and the DB row is `running` but no in-process worker is tracking it (zombie), `force: true` transitions the row to `cancelled`. Default behavior unchanged.
+- **Startup zombie reaper** (`core/auto/reaper.ts`) — both `server.ts` and `api.ts` now run on boot. Marks `runs` stuck in `running`/`pending` older than 30 minutes as `failed`, and `auto_runs` owned by dead PIDs (or older than 30 min) as `failed`. Emits `run_reaped` / `auto_reaped` events.
+- **Child run tracking** — coordinator tracks every sub-agent-spawned run id so cancellation can reap them atomically (they never wrote a terminal status because the sub-agent was aborted before calling `mcp__neuron__train`'s finalize path).
+- **`VerdictStatus` + `AutoRun.status` extended with `"cancelled"`** — gets its own verdict summary ("cancelled by operator after N wave(s), M run(s)").
+
+### Fixed
+
+- Cancellation precedence in the controller: external abort (`!budgetExpired`) now takes precedence over "failed" when the abort happens before any wave completes, so a pre-wave cancel no longer shows as `failed`.
+- The final cancel-reap loop calls `forceCancelRun` on every tracked child, covering both mid-wave cancel and budget timeout.
+
+### Dropped from scope (explicit)
+
+- **MCP request-level cancellation** (Esc on the client triggering the handler's abort automatically) — needs SDK hook validation. The new `cancel_auto_train` tool covers the workflow; auto-propagation from the MCP request can land in a follow-up.
+- **Worker-level fast abort** (killing rs-tensor mid-epoch) — our training loop doesn't check a cancel signal per epoch. A mid-run cancel still lets the current epoch window finish before tearing down; budget enforcement at wave boundaries is still the policy.
+- **Coordinator restart recovery** (resuming a cancelled auto_run) — out of scope.
+
+### Verification
+
+- Dashboard `tsc -b && vite build` clean, neuron `tsc --noEmit` clean, bench Δ=+0.000.
+- `ml-labs --version` now prints `1.4.0` (see v1.3.1 note).
+
+### Upgrade
+
+```bash
+ml-labs update
+```
+
+---
+
 ## v1.3.1 — 2026-04-21
 
 **Fixes `ml-labs --version` reporting 1.0.0.**

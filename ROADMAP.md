@@ -583,6 +583,30 @@ Our 5-dataset bench hits the target in wave 1 thanks to the Phase 3 modern seed 
 
 ---
 
+## Phase 10.6 (new) — Cancellable auto_train + zombie reaper
+
+**Status**: ✅ **Shipped as v1.4.0 on 2026-04-21.**
+
+**Goal**: Fix a reported bug where cancelling an `auto_train` tool call on the client left the coordinator churning, spawned zombie runs, and required killing the MCP server to stop.
+
+**What shipped**:
+- **In-process coordinator registry** (`core/auto/registry.ts`): `runController` registers `{autoRunId, taskId, abortController, childRunIds}` on entry, deregisters on exit. External callers can look it up by `auto_run_id` or `task_id`.
+- **New `cancel_auto_train` MCP tool** with `task_id` OR `auto_run_id`. Aborts the coordinator, force-transitions the auto_run row and child runs to `cancelled`. Works both for live coordinators and for orphaned DB rows.
+- **`cancel_training` gained `force: boolean`** — force-transition a DB-`running` row to `cancelled` when no in-process worker is tracking it (zombie cleanup).
+- **Startup zombie reaper** on both `server.ts` (MCP) and `api.ts` (HTTP) boot — marks `runs` stuck `running`/`pending` > 30 min as `failed`; marks `auto_runs` owned by dead PIDs (or stale > 30 min) as `failed`. Emits `run_reaped` / `auto_reaped` events.
+- **Child run tracking** in the controller — every sub-agent-spawned run id is remembered via `registry.trackChildRun`, so a cancel reaps them even when the sub-agent was aborted before calling `train`'s finalize path.
+- **Verdict types extended** with `"cancelled"` status.
+
+**Scope deltas**:
+- **MCP request-level cancellation dropped** — auto-propagation from the MCP request-abort hook needs SDK validation; the new `cancel_auto_train` tool covers the workflow.
+- **Worker-level fast abort dropped** — our rs-tensor training loop doesn't check a cancel signal per epoch. Mid-wave cancel lets the current epoch finish; budget enforcement at wave boundaries is still the policy.
+
+**Verification**: dashboard + neuron typecheck clean, bench Δ=+0.000.
+
+**Time**: ~2 hours.
+
+---
+
 ## Phase 10.5 (new) — Batch prediction observability
 
 **Status**: ✅ **Shipped as v1.3.0 on 2026-04-21.**

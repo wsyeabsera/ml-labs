@@ -8,6 +8,7 @@ export type VerdictStatus =
   | "budget_exceeded"
   | "no_improvement"
   | "failed"
+  | "cancelled"
 
 export interface StructuredVerdict {
   status: VerdictStatus
@@ -61,5 +62,6 @@ export function verdictSummaryOneLiner(v: StructuredVerdict): string {
   if (v.status === "data_issue") return v.summary
   if (v.status === "budget_exceeded") return `budget exceeded after ${v.attempted.configs_tried} configs in ${v.attempted.waves_used} waves`
   if (v.status === "no_improvement") return `no improvement after ${v.attempted.waves_used} waves — ${v.next_steps[0] ?? "inspect data"}`
+  if (v.status === "cancelled") return v.summary
   return v.summary
 }

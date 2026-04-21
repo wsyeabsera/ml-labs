@@ -4,8 +4,16 @@ import { getTaskState } from "./state"
 import { safeParse } from "../util/json"
 import { rsTensor } from "./mcp_client"
 import { log } from "./logger"
+import { reapZombies } from "./auto/reaper"
 
 export async function boot() {
+  // Phase 10.6: clean up stranded `running` rows from prior process crashes
+  // before anything else — otherwise get_auto_status / list_runs show ghosts.
+  const reaped = reapZombies()
+  if (reaped.runsReaped > 0 || reaped.autoRunsReaped > 0) {
+    log(`Reaped stale rows: ${reaped.runsReaped} run(s), ${reaped.autoRunsReaped} auto_run(s)`)
+  }
+
   const tasks = listTasks()
   log(`Neuron boot: found ${tasks.length} task(s)`)
 

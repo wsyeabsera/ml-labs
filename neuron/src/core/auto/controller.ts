@@ -24,6 +24,10 @@ import {
 import { registerModel } from "../db/models"
 import { handler as publishHandler } from "../../tools/publish_model"
 import { handler as calibrateHandler } from "../../tools/calibrate"
+import {
+  registerController, deregisterController, trackChildRun,
+} from "./registry"
+import { forceCancelRun } from "../db/runs"
 
 export interface ControllerArgs {
   task_id: string
@@ -67,6 +71,31 @@ export async function runController(args: ControllerArgs): Promise<ControllerRes
     budgetExpired = true
     ac.abort()
   }, hardTimeoutMs)
+
+  // Phase 10.6: register in the in-process coordinator registry so external
+  // callers (cancel_auto_train tool, cancel_training(force), etc.) can abort us.
+  const registryEntry = registerController({
+    autoRunId: args.auto_run_id,
+    taskId: args.task_id,
+    abortController: ac,
+  })
+
+  try {
+    return await runControllerBody(args, ac, t0, budgetTimer, () => budgetExpired, registryEntry)
+  } finally {
+    clearTimeout(budgetTimer)
+    deregisterController(args.auto_run_id)
+  }
+}
+
+async function runControllerBody(
+  args: ControllerArgs,
+  ac: AbortController,
+  t0: number,
+  budgetTimer: ReturnType<typeof setTimeout>,
+  isBudgetExpired: () => boolean,
+  registryEntry: { childRunIds: Set<number> },
+): Promise<ControllerResult> {
 
   const elapsed = () => Math.round((Date.now() - t0) / 1000)
   const isRegression = args.task_kind === "regression"
@@ -239,6 +268,10 @@ export async function runController(args: ControllerArgs): Promise<ControllerRes
     lastWaveRunIds = completedRunIds
     allRunIds.push(...completedRunIds)
     wavesDone += 1
+    // Track all run ids (completed or not) so a mid-wave cancel can reap them.
+    for (const r of results) {
+      if (r.run_id != null) trackChildRun(args.auto_run_id, r.run_id)
+    }
     // Attribute this wave's rules_fired to each run it produced.
     for (const id of completedRunIds) runIdToRules.set(id, plan.rules_fired)
 
@@ -429,6 +462,9 @@ export async function runController(args: ControllerArgs): Promise<ControllerRes
           .map((r) => r.run_id!)
         for (const id of extraCompletedIds) runIdToRules.set(id, extraPlan.rules_fired)
         allRunIds.push(...extraCompletedIds)
+        for (const r of extraResults) {
+          if (r.run_id != null) trackChildRun(args.auto_run_id, r.run_id)
+        }
 
         const extraBundle = collectSignals({
           task_id: args.task_id,
@@ -539,7 +575,12 @@ export async function runController(args: ControllerArgs): Promise<ControllerRes
   // Step 5: final status + verdict
   let status: VerdictStatus
   const nextSteps: string[] = []
-  if (budgetExpired) {
+  // Cancellation (external abort that is NOT the budget timer) takes precedence
+  // over everything else — the caller explicitly asked us to stop.
+  if (ac.signal.aborted && !isBudgetExpired()) {
+    status = "cancelled"
+    nextSteps.push("auto_train was cancelled before completing — re-run to continue")
+  } else if (isBudgetExpired()) {
     status = "budget_exceeded"
     nextSteps.push("re-run with a larger budget_s")
   } else if (winner == null) {
@@ -637,9 +678,25 @@ export async function runController(args: ControllerArgs): Promise<ControllerRes
       ? `target reached: ${metricName}=${winnerMetric?.toFixed(3)} on run ${winner?.run_id}`
       : status === "budget_exceeded"
         ? `budget exceeded (${elapsed()}s)`
-        : status === "no_improvement"
-          ? `best ${metricName}=${winnerMetric?.toFixed(3) ?? "n/a"} < target ${args.accuracy_target}`
-          : "no completed runs",
+        : status === "cancelled"
+          ? `cancelled by operator after ${wavesDone} wave(s), ${allRunIds.length} run(s)`
+          : status === "no_improvement"
+            ? `best ${metricName}=${winnerMetric?.toFixed(3) ?? "n/a"} < target ${args.accuracy_target}`
+            : "no completed runs",
+  }
+
+  // Reap any child runs still marked as running in the DB. This covers two cases:
+  //   1. Cancelled mid-wave — sub-agents that were spawning/in-flight never wrote a terminal status.
+  //   2. Budget timer fired mid-wave — same problem.
+  // Safe to call on every exit path because forceCancelRun no-ops on already-terminal rows.
+  if (status === "cancelled" || status === "budget_exceeded" || status === "failed") {
+    const reapedIds: number[] = []
+    for (const childId of registryEntry.childRunIds) {
+      if (forceCancelRun(childId, "cancelled")) reapedIds.push(childId)
+    }
+    if (reapedIds.length > 0) {
+      log(args.auto_run_id, "cancel_reaped", `reaped ${reapedIds.length} in-flight run(s)`, { run_ids: reapedIds })
+    }
   }
   saveVerdictJson(args.auto_run_id, verdict)
   const oneLiner = verdictSummaryOneLiner(verdict)

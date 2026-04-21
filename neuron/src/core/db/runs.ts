@@ -156,6 +156,30 @@ export function updateRunStatus(id: number, status: Run["status"]) {
   db.prepare("UPDATE runs SET status = ?, finished_at = unixepoch() WHERE id = ?").run(status, id)
 }
 
+/**
+ * Force a `running`/`pending` run into a terminal status regardless of in-process
+ * state. Used by cancel paths and the startup reaper to clear zombie rows.
+ * No-ops on rows that are already terminal so it's safe to call blind.
+ */
+export function forceCancelRun(id: number, status: Extract<Run["status"], "cancelled" | "failed">): boolean {
+  const row = db.prepare(
+    "SELECT status FROM runs WHERE id = ?",
+  ).get(id) as { status: string } | null
+  if (!row) return false
+  if (row.status !== "running" && row.status !== "pending") return false
+  db.prepare(
+    "UPDATE runs SET status = ?, finished_at = unixepoch(), checkpoint = NULL, run_progress = NULL WHERE id = ?",
+  ).run(status, id)
+  return true
+}
+
+export function listStaleRunningRuns(minAgeS: number): Run[] {
+  const cutoff = Math.floor(Date.now() / 1000) - minAgeS
+  return (db.query(
+    "SELECT * FROM runs WHERE status IN ('running', 'pending') AND (started_at IS NULL OR started_at < ?)",
+  ).all(cutoff) as DbRow[]).map(rowToRun)
+}
+
 export function updateRunCheckpoint(id: number, checkpoint: Checkpoint, lossHistory: number[]) {
   db.prepare("UPDATE runs SET checkpoint = ?, loss_history = ? WHERE id = ?")
     .run(JSON.stringify(checkpoint), JSON.stringify(lossHistory), id)

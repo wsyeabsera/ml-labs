@@ -19,7 +19,7 @@ export interface AutoVerdict {
 export interface AutoRun {
   id: number
   task_id: string
-  status: "running" | "completed" | "failed" | "data_issue" | "budget_exceeded" | "no_improvement"
+  status: "running" | "completed" | "failed" | "data_issue" | "budget_exceeded" | "no_improvement" | "cancelled"
   started_at: string
   finished_at: string | null
   accuracy_target: number | null
