@@ -174,3 +174,29 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_predictions_task_ts ON predictions(task_id, ts DESC);
 `)
+
+// Phase 8.5 — shadow models + per-call comparison log
+// One shadow model per task; runs in parallel with the primary on every predict call.
+// Primary output is returned to the caller; shadow output is logged for offline agreement analysis.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS shadow_models (
+    task_id   TEXT PRIMARY KEY,
+    run_id    INTEGER NOT NULL,
+    added_at  INTEGER NOT NULL DEFAULT (unixepoch()),
+    FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+    FOREIGN KEY(run_id)  REFERENCES runs(id)  ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS shadow_comparisons (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id         TEXT NOT NULL,
+    primary_run_id  INTEGER NOT NULL,
+    shadow_run_id   INTEGER NOT NULL,
+    features        TEXT NOT NULL,
+    primary_output  TEXT NOT NULL,
+    shadow_output   TEXT NOT NULL,
+    agree           INTEGER NOT NULL,
+    ts              INTEGER NOT NULL DEFAULT (CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER))
+  );
+  CREATE INDEX IF NOT EXISTS idx_shadow_cmp_task_ts ON shadow_comparisons(task_id, ts DESC);
+`)

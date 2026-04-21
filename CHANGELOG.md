@@ -4,6 +4,48 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v1.1.0 — 2026-04-21
+
+**Production story follow-through.** Phase 8 shipped the v1.0 production MVP (serving + logging + drift detection). Three items were explicitly deferred; this release lands the two that close real user loops and drops the two that had no concrete consumer.
+
+### Added — Phase 8.5 (shadow mode + auto-retrain banner)
+
+- **Shadow model mode** — run a second model alongside the primary on every prediction without affecting user-visible output.
+  - New `shadow_models` table (one shadow per task) and `shadow_comparisons` log table.
+  - `POST /api/tasks/:id/shadow {run_id}` — attach a completed run as the task's shadow.
+  - `DELETE /api/tasks/:id/shadow` — detach.
+  - `GET /api/tasks/:id/shadow` — returns shadow run details + agreement rate over the last 500 comparisons.
+  - `POST /api/tasks/:id/shadow/promote` — atomic `registerModel` + detach; replaces the primary with the shadow.
+  - **Prediction path**: when a shadow is attached, `POST /api/tasks/:id/predict` runs both models sequentially, logs the comparison (classification: labels match? regression: `|delta| / max(|primary|, 1) < 0.05`?), returns the primary output unchanged. Shadow failures are non-fatal.
+  - Refactored `tools/predict.ts` to expose a reusable `runInference(run, task, features)` helper.
+- **Auto-retrain banner** — closes the drift-detection loop shipped in v1.0.0.
+  - `drift_check` now records a `drift_detected` event when overall verdict ∈ {drifting, severe}. Idempotent: skips same-verdict emissions within 5 minutes per task.
+  - New `GET /api/tasks/:id/drift-status` returns the latest drift event within 24h (or null).
+  - New dashboard `DriftBanner` component — dismissable per `(taskId, eventId)`, shows on both Overview (compact, per-task) and TaskDetail.
+  - Banner's "Retrain now" button links to `/train?task=<id>`.
+- **ShadowCard on TaskDetail** — agreement rate bar, primary vs shadow accuracy, "Promote shadow" button (gated behind ≥10 comparisons), detach.
+
+### Tests
+
+- **New integration test** `test/integration/drift-sim.ts` — seeds a synthetic task with N(0, 1) training features, logs 500 stable predictions (verifies no false-positive), shifts feature[0] mean by +2σ, logs 100 more, asserts drift_check flags the shift. Passes in <2s.
+- Dashboard `tsc -b && vite build` clean.
+- Neuron `tsc --noEmit` clean.
+- Bench Δ=+0.000 — shadow only triggers when attached, and no bench attaches one.
+
+### Dropped from Phase 8 deferred list (permanently)
+
+- **Canary weighted routing** — shadow mode (observer, weight=0 semantics) covers the validate-before-promote use case without inference-path randomness. True canary revisits if a multi-model serving story emerges.
+- **ONNX export** — no named consumer. Big rs-tensor Rust lift with no pull signal; skipped.
+- **HTTP P99 latency test** — serving path is ~10 ms with no measured pain.
+
+### Upgrade
+
+```bash
+ml-labs update
+```
+
+---
+
 ## v1.0.1 — 2026-04-21
 
 **Dashboard detail pass.** Phases 2–8 shipped rich backend state (run_context, dataset_hash, calibration temperature, all Phase 3 hyperparams, auto-run decision_log + verdict_json, drift reports) — but the dashboard was largely v0.7-era. This release surfaces what was already stored.

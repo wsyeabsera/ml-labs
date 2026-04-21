@@ -12,6 +12,8 @@ import { PageHeader } from "../components/PageHeader"
 import { StatusDot } from "../components/StatusDot"
 import { Empty } from "../components/Empty"
 import { ActiveRunCard } from "../components/ActiveRunCard"
+import { DriftBanner } from "../components/DriftBanner"
+import { ShadowCard } from "../components/ShadowCard"
 import { clsx } from "clsx"
 
 function pct(v: number | null) {
@@ -382,6 +384,9 @@ export function TaskDetail() {
       <AnimatePresence>
         {showReset && <ResetDialog taskId={taskId} onClose={() => setShowReset(false)} />}
       </AnimatePresence>
+
+      <DriftBanner taskId={taskId} />
+      <ShadowCard taskId={taskId} runs={runs} />
 
       {/* Meta grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">

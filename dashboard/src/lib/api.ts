@@ -267,6 +267,29 @@ export interface ApiConfusionDrill {
   }>
 }
 
+export interface ApiDriftStatus {
+  ok: boolean
+  drift: {
+    verdict: "drifting" | "severe"
+    driftingFeatures: number
+    totalFeatures: number
+    ts: number
+    eventId: number
+  } | null
+}
+
+export interface ApiShadowState {
+  ok: boolean
+  shadow: {
+    runId: number
+    addedAt: number
+    accuracy: number | null
+    valAccuracy: number | null
+    status: string | null
+  } | null
+  agreement?: { total: number; agreed: number; rate: number }
+}
+
 export interface ApiSuggestSamples {
   ok: boolean
   task_id: string
@@ -396,6 +419,35 @@ export const api = {
       if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`)
       return data as ApiSuggestSamples
     }),
+
+  driftStatus: (taskId: string) =>
+    get<ApiDriftStatus>(`/tasks/${encodeURIComponent(taskId)}/drift-status`),
+
+  getShadow: (taskId: string) =>
+    get<ApiShadowState>(`/tasks/${encodeURIComponent(taskId)}/shadow`),
+
+  attachShadow: (taskId: string, runId: number) =>
+    fetch(`${BASE}/tasks/${encodeURIComponent(taskId)}/shadow`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ run_id: runId }),
+    }).then(async (res) => {
+      const data = await res.json() as { ok?: boolean; error?: string; runId?: number }
+      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`)
+      return data as { ok: true; taskId: string; runId: number }
+    }),
+
+  detachShadow: (taskId: string) =>
+    fetch(`${BASE}/tasks/${encodeURIComponent(taskId)}/shadow`, { method: "DELETE" })
+      .then((r) => r.json() as Promise<{ ok: boolean; detached: boolean; runId?: number }>),
+
+  promoteShadow: (taskId: string) =>
+    fetch(`${BASE}/tasks/${encodeURIComponent(taskId)}/shadow/promote`, { method: "POST" })
+      .then(async (res) => {
+        const data = await res.json() as { ok?: boolean; error?: string; runId?: number }
+        if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`)
+        return data as { ok: true; taskId: string; runId: number }
+      }),
 
   autoRuns: (opts?: { task?: string; limit?: number; offset?: number }) => {
     const url = new URL(`${window.location.origin}${BASE}/auto`)

@@ -583,6 +583,29 @@ Our 5-dataset bench hits the target in wave 1 thanks to the Phase 3 modern seed 
 
 ---
 
+## Phase 8.5 (new) — Production story follow-through
+
+**Status**: ✅ **Shipped as v1.1.0 on 2026-04-21.**
+
+**Goal**: Close the two real loops Phase 8 deferred (drift → retrain, multi-model validation) and drop what had no pull signal.
+
+**What shipped**:
+- **Shadow mode** (observer-only): `shadow_models` + `shadow_comparisons` tables, attach/detach/get/promote API (`POST/DELETE/GET /api/tasks/:id/shadow`, `POST .../shadow/promote`), `handlePredict` extended to run both models sequentially and log comparisons; primary output returned unchanged. Refactored `tools/predict.ts` to expose a reusable `runInference(run, task, features)` helper.
+- **Auto-retrain banner**: `drift_check` emits a `drift_detected` event when verdict ∈ {drifting, severe} (5-min dedupe). New `GET /api/tasks/:id/drift-status` + new dashboard `DriftBanner` on Overview (compact, per-task) and TaskDetail, dismissable per `(taskId, eventId)`, with a "Retrain now" button linking to `/train?task=<id>`.
+- **ShadowCard on TaskDetail**: agreement rate bar, primary vs shadow accuracy, promote button (gated behind ≥10 comparisons), detach.
+- **Drift simulation integration test** (`test/integration/drift-sim.ts`): seeds a synthetic task, logs 500 stable predictions (asserts no false positive), shifts feature[0] by +2σ, logs 100 more, asserts drift_check flags the shift. Passes in <2s.
+
+**Scope deltas**:
+- **Canary weighted routing dropped.** The validate-before-promote use case is fully served by observer-only shadow mode; true canary adds inference-path randomness without a concrete need.
+- **ONNX export dropped.** No named consumer; rs-tensor-Rust work with no pull signal.
+- **HTTP P99 latency test dropped.** Serving path is ~10 ms with no measured pain.
+
+**Verification**: dashboard `tsc -b && vite build` clean, neuron `tsc --noEmit` clean, drift-sim passes, bench Δ=+0.000 (shadow only triggers when attached; benches don't attach).
+
+**Time**: ~2 hours.
+
+---
+
 ## Phase 7.6 (new) — Dashboard detail pass
 
 **Status**: ✅ **Shipped as v1.0.1 on 2026-04-21.**
@@ -676,11 +699,12 @@ Our 5-dataset bench hits the target in wave 1 thanks to the Phase 3 modern seed 
 - **`drift_check` MCP tool** + HTTP endpoint (`GET /api/tasks/:id/drift`).
 - **`/drift` dashboard route** — per-task drift cards, expandable to per-feature PSI/KS/verdict.
 
-**Deferred to Phase 8.5 / v1.0.1**:
-- Shadow / canary routing with `active_models.weight` + weighted prediction routing
-- Auto-retrain banner triggered by drift events
-- Integration tests for HTTP latency and drift simulation
-- ONNX export for non-rs-tensor runtimes
+**Deferred — now landed or permanently dropped in Phase 8.5**:
+- Shadow routing → shipped as observer-only shadow mode in v1.1.0 (pure canary dropped).
+- Auto-retrain banner → shipped in v1.1.0.
+- Drift simulation integration test → shipped in v1.1.0.
+- ONNX export → dropped (no named consumer).
+- HTTP P99 latency test → dropped (no measured pain).
 
 **Time**: ~2.5 hours.
 

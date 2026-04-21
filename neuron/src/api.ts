@@ -9,6 +9,7 @@ import { parse as parseCsv } from "csv-parse/sync"
 import { listTasks, getTask, createTask, updateTaskFeatureNames, updateTaskLabels, deleteTask } from "./core/db/tasks"
 import { listRuns, listAllRuns, getRun } from "./core/db/runs"
 import { listAutoRuns, getAutoRun } from "./core/db/auto"
+import { attachShadow, detachShadow, getShadow, getAgreementRate } from "./core/db/shadow"
 import { sampleCounts, splitCounts, insertSamplesBatch, deleteAllSamples } from "./core/db/samples"
 import { deleteRegisteredModel } from "./core/db/models"
 import { countRuns } from "./core/db/runs"
@@ -16,7 +17,7 @@ import { getRegisteredModel, registerModel } from "./core/db/models"
 import { recordEvent, listEvents } from "./core/db/events"
 import { getTaskState, resetTaskState } from "./core/state"
 import { startTrainBackground } from "./api/trainBg"
-import { handler as predictFn } from "./tools/predict"
+import { handler as predictFn, runInference as runInferenceForRun } from "./tools/predict"
 import { softmax, argmax, applyNorm } from "./core/metrics"
 import { rsTensor, clientStatus } from "./core/mcp_client"
 import { loadConfig, loadedConfigPath } from "./adapter/loader"
@@ -26,7 +27,7 @@ import { db } from "./core/db/schema"
 
 const PORT = parseInt(process.env.NEURON_API_PORT ?? "2626")
 const DIST = process.env.DASHBOARD_DIST ?? join(import.meta.dir, "../../dashboard/dist")
-const VERSION = "1.0.1"
+const VERSION = "1.1.0"
 const DB_DIR = (() => {
   const db = process.env.NEURON_DB
   return db ? join(db, "..") : join(import.meta.dir, "../../data")
@@ -800,12 +801,52 @@ async function handlePredict(taskId: string, req: Request): Promise<Response> {
   const features = body.features
   if (!Array.isArray(features) || features.some((v) => typeof v !== "number"))
     return err("features must be an array of numbers")
+  const feats = features as number[]
   try {
-    const result = await predictFn({ task_id: taskId, features: features as number[] })
+    const result = await predictFn({ task_id: taskId, features: feats })
+
+    // Phase 8.5 — shadow inference: if a shadow is attached, run it, log the comparison,
+    // but return the primary output unchanged to the caller.
+    const shadow = getShadow(taskId)
+    const primary = getRegisteredModel(taskId)
+    if (shadow?.run && primary?.runId != null
+        && (shadow.run.status === "completed" || shadow.run.status === "imported")) {
+      try {
+        const shadowOutput = await runInferenceForRun(shadow.run, task, feats)
+        const agree = computeAgreement(result, shadowOutput, task.kind === "regression")
+        const { recordShadowComparison } = await import("./core/db/shadow")
+        recordShadowComparison({
+          taskId,
+          primaryRunId: primary.runId,
+          shadowRunId: shadow.runId,
+          features: feats,
+          primaryOutput: result,
+          shadowOutput,
+          agree,
+        })
+      } catch {
+        // Shadow inference failures are non-fatal — the primary response still ships.
+      }
+    }
+
     return json(result)
   } catch (e) {
     return err(e instanceof Error ? e.message : String(e))
   }
+}
+
+function computeAgreement(
+  primary: { label?: string; value?: number },
+  shadow: { label?: string; value?: number },
+  isRegression: boolean,
+): boolean {
+  if (isRegression) {
+    if (primary.value == null || shadow.value == null) return false
+    const delta = Math.abs(primary.value - shadow.value)
+    const scale = Math.max(Math.abs(primary.value), 1)
+    return delta / scale < 0.05
+  }
+  return primary.label != null && primary.label === shadow.label
 }
 
 async function handleBatchPredict(taskId: string, req: Request): Promise<Response> {
@@ -1066,6 +1107,92 @@ async function handlePostResponse(requestId: number, req: Request): Promise<Resp
   return json({ ok: true })
 }
 
+// ── Drift status + shadow routes ──────────────────────────────────────────────
+
+function handleDriftStatus(taskId: string): Response {
+  const task = getTask(taskId)
+  if (!task) return err(`Task "${taskId}" not found`, 404)
+  const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000
+  const evs = listEvents({ taskId, since: twentyFourHoursAgo, limit: 200 })
+    .filter((e) => e.kind === "drift_detected")
+  if (evs.length === 0) return json({ ok: true, drift: null })
+  const latest = evs[evs.length - 1]!
+  const p = latest.payload as { verdict?: string; drifting_features?: number; total_features?: number }
+  return json({
+    ok: true,
+    drift: {
+      verdict: p.verdict,
+      driftingFeatures: p.drifting_features ?? 0,
+      totalFeatures: p.total_features ?? 0,
+      ts: latest.ts,
+      eventId: latest.id,
+    },
+  })
+}
+
+function handleGetShadow(taskId: string): Response {
+  const task = getTask(taskId)
+  if (!task) return err(`Task "${taskId}" not found`, 404)
+  const shadow = getShadow(taskId)
+  if (!shadow) return json({ ok: true, shadow: null })
+  const agreement = getAgreementRate(taskId, 500)
+  return json({
+    ok: true,
+    shadow: {
+      runId: shadow.runId,
+      addedAt: shadow.addedAt,
+      accuracy: shadow.run?.accuracy ?? null,
+      valAccuracy: shadow.run?.valAccuracy ?? null,
+      status: shadow.run?.status ?? null,
+    },
+    agreement,
+  })
+}
+
+async function handleAttachShadow(taskId: string, req: Request): Promise<Response> {
+  const task = getTask(taskId)
+  if (!task) return err(`Task "${taskId}" not found`, 404)
+  let body: { run_id?: number } = {}
+  try { body = (await req.json()) as { run_id?: number } } catch { return err("Invalid JSON body") }
+  if (typeof body.run_id !== "number") return err("run_id (number) required")
+  const run = getRun(body.run_id)
+  if (!run || run.taskId !== taskId) return err("run_id does not belong to this task", 400)
+  if (run.status !== "completed" && run.status !== "imported") {
+    return err("shadow must reference a completed or imported run", 400)
+  }
+  const primary = getRegisteredModel(taskId)
+  if (primary && primary.runId === body.run_id) {
+    return err("shadow cannot equal the currently-promoted run", 400)
+  }
+  attachShadow(taskId, body.run_id)
+  recordEvent({ source: "api", kind: "shadow_attached", taskId, runId: body.run_id })
+  return json({ ok: true, taskId, runId: body.run_id })
+}
+
+function handleDetachShadow(taskId: string): Response {
+  const task = getTask(taskId)
+  if (!task) return err(`Task "${taskId}" not found`, 404)
+  const existing = getShadow(taskId)
+  if (!existing) return json({ ok: true, detached: false })
+  detachShadow(taskId)
+  recordEvent({ source: "api", kind: "shadow_detached", taskId, runId: existing.runId })
+  return json({ ok: true, detached: true, runId: existing.runId })
+}
+
+function handlePromoteShadow(taskId: string): Response {
+  const task = getTask(taskId)
+  if (!task) return err(`Task "${taskId}" not found`, 404)
+  const shadow = getShadow(taskId)
+  if (!shadow) return err("No shadow attached", 400)
+  registerModel(taskId, shadow.runId)
+  detachShadow(taskId)
+  recordEvent({ source: "api", kind: "shadow_promoted", taskId, runId: shadow.runId,
+    payload: { from: "shadow" } })
+  recordEvent({ source: "api", kind: "model_registered", taskId, runId: shadow.runId,
+    payload: { via: "shadow_promotion" } })
+  return json({ ok: true, taskId, runId: shadow.runId })
+}
+
 // ── Auto-run routes ───────────────────────────────────────────────────────────
 
 function handleAutoRuns(url: URL): Response {
@@ -1260,6 +1387,17 @@ Bun.serve({
 
     const taskDriftMatch = path.match(/^\/api\/tasks\/([^/]+)\/drift$/)
     if (taskDriftMatch && req.method === "GET") return handleDrift(decodeURIComponent(taskDriftMatch[1]!), url)
+
+    const taskDriftStatusMatch = path.match(/^\/api\/tasks\/([^/]+)\/drift-status$/)
+    if (taskDriftStatusMatch && req.method === "GET") return handleDriftStatus(decodeURIComponent(taskDriftStatusMatch[1]!))
+
+    const taskShadowMatch = path.match(/^\/api\/tasks\/([^/]+)\/shadow$/)
+    if (taskShadowMatch && req.method === "GET")    return handleGetShadow(decodeURIComponent(taskShadowMatch[1]!))
+    if (taskShadowMatch && req.method === "POST")   return handleAttachShadow(decodeURIComponent(taskShadowMatch[1]!), req)
+    if (taskShadowMatch && req.method === "DELETE") return handleDetachShadow(decodeURIComponent(taskShadowMatch[1]!))
+
+    const taskShadowPromoteMatch = path.match(/^\/api\/tasks\/([^/]+)\/shadow\/promote$/)
+    if (taskShadowPromoteMatch && req.method === "POST") return handlePromoteShadow(decodeURIComponent(taskShadowPromoteMatch[1]!))
 
     const runMatch = path.match(/^\/api\/runs\/(\d+)$/)
     if (runMatch && req.method === "GET")        return handleRun(parseInt(runMatch[1]!))

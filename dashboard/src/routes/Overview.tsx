@@ -8,6 +8,7 @@ import { StatusDot } from "../components/StatusDot"
 import { Empty } from "../components/Empty"
 import { ConfigCard } from "../components/ConfigCard"
 import { ActiveRunCard } from "../components/ActiveRunCard"
+import { DriftBanner } from "../components/DriftBanner"
 import { clsx } from "clsx"
 
 function pct(v: number | null) {
@@ -131,6 +132,21 @@ function SummaryBar({ tasks }: { tasks: ApiTask[] }) {
   )
 }
 
+function DriftStrip({ tasks }: { tasks: ApiTask[] }) {
+  // Renders a drift banner per task; each banner queries its own drift-status.
+  // Component self-hides when there's no active drift, so this is cheap for tasks
+  // without drift events — but we only iterate tasks that have at least one run.
+  const candidates = tasks.filter((t) => t.runCount > 0)
+  if (candidates.length === 0) return null
+  return (
+    <div className="mb-4">
+      {candidates.map((t) => (
+        <DriftBanner key={t.id} taskId={t.id} compact />
+      ))}
+    </div>
+  )
+}
+
 function LiveStrip({ tasks }: { tasks: ApiTask[] }) {
   const activeTasks = tasks.filter((t) => t.activeRunId && t.lastRunStatus === "running")
   if (activeTasks.length === 0) return null
@@ -184,6 +200,7 @@ export function Overview() {
       {!isLoading && !error && tasks.length > 0 && (
         <>
           <SummaryBar tasks={tasks} />
+          <DriftStrip tasks={tasks} />
           <LiveStrip tasks={tasks} />
         </>
       )}

@@ -3,6 +3,7 @@ import { getTask } from "../core/db/tasks"
 import { getSamplesByTask } from "../core/db/samples"
 import { listRecentPredictions } from "../core/db/predictions"
 import { driftReportFromArrays } from "../core/drift"
+import { recordEvent, listEvents } from "../core/db/events"
 
 export const name = "drift_check"
 export const description =
@@ -31,10 +32,34 @@ export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
   const recent = listRecentPredictions(args.task_id, args.current_window)
   const current = recent.map((r) => r.features)
 
-  return driftReportFromArrays(
+  const report = driftReportFromArrays(
     reference,
     current,
     task.featureNames ?? undefined,
     args.task_id,
   )
+
+  // Emit drift_detected only when there's meaningful drift (not stable or insufficient).
+  // Dedupe: skip if the same task saw the same verdict within the last 5 minutes —
+  // avoids event-bus spam when a caller runs drift_check in a tight loop.
+  if (report.overall_verdict === "drifting" || report.overall_verdict === "severe") {
+    const fiveMinAgo = Date.now() - 5 * 60 * 1000
+    const recentSame = listEvents({ taskId: args.task_id, since: fiveMinAgo, limit: 10 })
+      .find((e) => e.kind === "drift_detected" &&
+        (e.payload as { verdict?: string } | null)?.verdict === report.overall_verdict)
+    if (!recentSame) {
+      recordEvent({
+        source: "mcp",
+        kind: "drift_detected",
+        taskId: args.task_id,
+        payload: {
+          verdict: report.overall_verdict,
+          drifting_features: report.verdict_summary.drifting + report.verdict_summary.severe,
+          total_features: report.features.length,
+        },
+      })
+    }
+  }
+
+  return report
 }
