@@ -15,6 +15,14 @@ pub struct InitMlpArgs {
     pub architecture: Vec<usize>,
     /// Name prefix for the MLP (default: "mlp")
     pub name: Option<String>,
+    /// Activation function for hidden layers: "tanh" (default), "relu", "gelu", "leaky_relu".
+    /// The output layer is always linear (no activation) regardless of this setting.
+    #[serde(default)]
+    pub activation: Option<String>,
+    /// Weight init strategy: "auto" (default), "xavier", "kaiming".
+    /// "auto" picks xavier for tanh, kaiming (He) for relu/gelu/leaky_relu.
+    #[serde(default)]
+    pub init: Option<String>,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -44,6 +52,36 @@ pub struct TrainMlpArgs {
     /// for this many consecutive epochs. Reports epochs_done in the response.
     #[serde(default)]
     pub early_stop_patience: Option<usize>,
+    /// Optimizer: "sgd" (default), "adam", "adamw". Adam / AdamW maintain per-weight
+    /// first and second moment estimates in the tensor store named `{mlp}_w{l}_m` / `_v`.
+    #[serde(default)]
+    pub optimizer: Option<String>,
+    /// Mini-batch size. Defaults to full-batch. Samples are shuffled per epoch
+    /// using `rng_seed` for reproducibility.
+    #[serde(default)]
+    pub batch_size: Option<usize>,
+    /// LR schedule: "constant" (default), "cosine", "linear_warmup".
+    /// Cosine decays lr → min_lr over `epochs`. Linear_warmup ramps 0 → lr over `warmup_epochs` then holds.
+    #[serde(default)]
+    pub lr_schedule: Option<String>,
+    /// Warmup epoch count for the "linear_warmup" schedule (default 10).
+    #[serde(default)]
+    pub warmup_epochs: Option<usize>,
+    /// Minimum LR for the cosine schedule (default 0.0).
+    #[serde(default)]
+    pub min_lr: Option<f32>,
+    /// Gradient clipping threshold. If set and the global L2 norm of all parameter gradients
+    /// exceeds this value, gradients are scaled down before the update.
+    #[serde(default)]
+    pub grad_clip: Option<f32>,
+    /// Loss function: "mse" (default) or "cross_entropy". Cross-entropy expects raw logits
+    /// in the output layer; targets should be one-hot. Classification-only.
+    #[serde(default)]
+    pub loss: Option<String>,
+    /// Seed for the per-epoch shuffle (mini-batch path). When omitted, uses a fixed default
+    /// so behavior stays deterministic across runs — override via NEURON_SEED upstream.
+    #[serde(default)]
+    pub rng_seed: Option<u64>,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]

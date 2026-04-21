@@ -37,6 +37,11 @@ export async function runSweepSequential(
         classWeights: config.class_weights,
         weightDecay: config.weight_decay,
         earlyStopPatience: config.early_stop_patience,
+        optimizer: config.optimizer,
+        batchSize: config.batch_size,
+        lrSchedule: config.lr_schedule,
+        loss: config.loss,
+        activation: config.activation,
       })
 
       await waitForRunCompletion(runId, signal)

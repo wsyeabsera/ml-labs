@@ -30,6 +30,15 @@ export interface StartTrainArgs {
   seed?: number
   cvFoldId?: number
   cvParentId?: number
+  optimizer?: "sgd" | "adam" | "adamw"
+  batchSize?: number
+  lrSchedule?: "constant" | "cosine" | "linear_warmup"
+  warmupEpochs?: number
+  minLr?: number
+  gradClip?: number
+  loss?: "mse" | "cross_entropy"
+  activation?: "tanh" | "relu" | "gelu" | "leaky_relu"
+  initStrategy?: "auto" | "xavier" | "kaiming"
 }
 
 export async function startTrainBackground(args: StartTrainArgs): Promise<{ runId: number }> {
@@ -104,6 +113,16 @@ export async function startTrainBackground(args: StartTrainArgs): Promise<{ runI
           lr, epochs,
           ...(args.weightDecay !== undefined ? { weightDecay: args.weightDecay } : {}),
           ...(args.earlyStopPatience !== undefined ? { earlyStopPatience: args.earlyStopPatience } : {}),
+          ...(args.optimizer !== undefined ? { optimizer: args.optimizer } : {}),
+          ...(args.batchSize !== undefined ? { batchSize: args.batchSize } : {}),
+          ...(args.lrSchedule !== undefined ? { lrSchedule: args.lrSchedule } : {}),
+          ...(args.warmupEpochs !== undefined ? { warmupEpochs: args.warmupEpochs } : {}),
+          ...(args.minLr !== undefined ? { minLr: args.minLr } : {}),
+          ...(args.gradClip !== undefined ? { gradClip: args.gradClip } : {}),
+          ...(args.loss !== undefined ? { loss: args.loss } : {}),
+          ...(args.activation !== undefined ? { activation: args.activation } : {}),
+          ...(args.initStrategy !== undefined ? { initStrategy: args.initStrategy } : {}),
+          ...(seed !== undefined ? { seed } : {}),
         },
         runId: run.id,
         isRegression,

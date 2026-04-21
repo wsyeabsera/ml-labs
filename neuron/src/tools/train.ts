@@ -25,7 +25,16 @@ export const schema = {
   class_weights: z.enum(["balanced"]).optional().describe("Oversample minority classes so every class contributes equally to training. Classification only."),
   weight_decay: z.number().nonnegative().optional().describe("L2 weight decay coefficient (default: 0). Typical values: 1e-4 .. 1e-2. Helps combat overfitting."),
   early_stop_patience: z.number().int().positive().optional().describe("Early-stopping patience in epochs. If set, training stops when loss has not improved for this many consecutive epochs."),
-  seed: z.number().int().optional().describe("Reserved for future use (Phase 3 mini-batch shuffle seeding). Accepted now so callers that pass it don't break."),
+  optimizer: z.enum(["sgd", "adam", "adamw"]).optional().describe("Optimizer (default: sgd). Adam/AdamW generally converge faster on harder problems."),
+  batch_size: z.number().int().positive().optional().describe("Mini-batch size (default: full batch). Smaller batches add stochastic regularization and scale to larger datasets."),
+  lr_schedule: z.enum(["constant", "cosine", "linear_warmup"]).optional().describe("Learning-rate schedule (default: constant)."),
+  warmup_epochs: z.number().int().nonnegative().optional().describe("Warmup epochs for lr_schedule=linear_warmup (default: 10)."),
+  min_lr: z.number().nonnegative().optional().describe("Minimum learning rate for cosine schedule (default: 0)."),
+  grad_clip: z.number().positive().optional().describe("Clip global L2 gradient norm to this value. Useful for high-LR or RNN-like training."),
+  loss: z.enum(["mse", "cross_entropy"]).optional().describe("Loss function (default: mse). CrossEntropy is numerically more stable for classification."),
+  activation: z.enum(["tanh", "relu", "gelu", "leaky_relu"]).optional().describe("Hidden-layer activation (default: tanh). ReLU/GELU are standard for deeper networks and pair with Kaiming init."),
+  init: z.enum(["auto", "xavier", "kaiming"]).optional().describe("Weight init strategy (default: auto — Xavier for tanh, Kaiming for ReLU family)."),
+  seed: z.number().int().optional().describe("Reproducibility seed for mini-batch shuffle + run context. Respects NEURON_SEED env var when omitted."),
 }
 
 export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
@@ -57,6 +66,16 @@ export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
     epochs: args.epochs ?? config?.defaultHyperparams?.epochs ?? 500,
     ...(args.weight_decay !== undefined ? { weightDecay: args.weight_decay } : {}),
     ...(args.early_stop_patience !== undefined ? { earlyStopPatience: args.early_stop_patience } : {}),
+    ...(args.optimizer !== undefined ? { optimizer: args.optimizer } : {}),
+    ...(args.batch_size !== undefined ? { batchSize: args.batch_size } : {}),
+    ...(args.lr_schedule !== undefined ? { lrSchedule: args.lr_schedule } : {}),
+    ...(args.warmup_epochs !== undefined ? { warmupEpochs: args.warmup_epochs } : {}),
+    ...(args.min_lr !== undefined ? { minLr: args.min_lr } : {}),
+    ...(args.grad_clip !== undefined ? { gradClip: args.grad_clip } : {}),
+    ...(args.loss !== undefined ? { loss: args.loss } : {}),
+    ...(args.activation !== undefined ? { activation: args.activation } : {}),
+    ...(args.init !== undefined ? { initStrategy: args.init } : {}),
+    ...(args.seed !== undefined ? { seed: args.seed } : {}),
   }
 
   const headArchFn = config?.headArchitecture ?? ((k: number, d: number) => [d, Math.max(d, 32), k])

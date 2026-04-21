@@ -542,6 +542,21 @@ impl TensorServer {
             )]));
         }
 
+        let activation = args.activation.as_deref().unwrap_or("tanh").to_string();
+        if !matches!(activation.as_str(), "tanh" | "relu" | "gelu" | "leaky_relu") {
+            return Ok(CallToolResult::error(vec![Content::text(
+                format!("Unknown activation: '{}'. Supported: tanh, relu, gelu, leaky_relu", activation),
+            )]));
+        }
+
+        // Auto-pick init: Xavier for tanh (symmetric around 0), Kaiming/He for ReLU family.
+        let init_strategy = args.init.as_deref().unwrap_or("auto");
+        let use_kaiming = match init_strategy {
+            "xavier" => false,
+            "kaiming" => true,
+            _ => activation != "tanh", // auto
+        };
+
         let mut store = self.tensors.lock().await;
         let mut weight_names = Vec::new();
         let mut total_params = 0usize;
@@ -550,11 +565,17 @@ impl TensorServer {
             let in_f = args.architecture[i];
             let out_f = args.architecture[i + 1];
 
-            // Xavier initialization: uniform(-limit, limit) where limit = sqrt(6 / (in + out))
-            let limit = (6.0 / (in_f + out_f) as f32).sqrt();
+            // Deterministic pseudo-random init with the activation-appropriate std.
+            // Xavier: std = sqrt(2 / (in + out))  — uniform limit = sqrt(6 / (in + out))
+            // Kaiming (He): std = sqrt(2 / in)     — uniform limit = sqrt(6 / in)
+            let limit = if use_kaiming {
+                (6.0 / in_f as f32).sqrt()
+            } else {
+                (6.0 / (in_f + out_f) as f32).sqrt()
+            };
             let w_data: Vec<f32> = (0..in_f * out_f)
                 .map(|j| {
-                    let t = (j as f32 * 0.618033988 + i as f32 * 1.618).fract(); // deterministic pseudo-random
+                    let t = (j as f32 * 0.618033988 + i as f32 * 1.618).fract();
                     t * 2.0 * limit - limit
                 })
                 .collect();
@@ -570,6 +591,13 @@ impl TensorServer {
             weight_names.push(b_name);
             total_params += in_f * out_f + out_f;
         }
+        drop(store);
+
+        // Persist activation for train_mlp to dispatch on.
+        let mut meta = self.meta.lock().await;
+        meta.insert(format!("{}_activation", name), activation.clone());
+        meta.insert(format!("{}_init", name), if use_kaiming { "kaiming".to_string() } else { "xavier".to_string() });
+        drop(meta);
 
         Ok(CallToolResult::success(vec![Content::text(
             serde_json::to_string_pretty(&json!({
@@ -579,6 +607,8 @@ impl TensorServer {
                 "layers": args.architecture.len() - 1,
                 "total_params": total_params,
                 "weight_names": weight_names,
+                "activation": activation,
+                "init": if use_kaiming { "kaiming" } else { "xavier" },
             })).unwrap()
         )]))
     }
@@ -629,14 +659,13 @@ impl TensorServer {
         )]))
     }
 
-    #[tool(description = "Train an MLP on a dataset using SGD. Runs forward → MSE loss → backward → weight update for each epoch. Returns training history.")]
+    #[tool(description = "Train an MLP on a dataset. Supports SGD / Adam / AdamW optimizers, mini-batch, LR schedules (constant/cosine/linear_warmup), activation auto-selection, CrossEntropy loss, gradient clipping, weight decay, and early stopping. Defaults match the v0.6 behavior (full-batch SGD + tanh + MSE) for backward compatibility.")]
     async fn train_mlp(
         &self,
         Parameters(args): Parameters<TrainMlpArgs>,
     ) -> Result<CallToolResult, McpError> {
         let mut store = self.tensors.lock().await;
 
-        // Get dataset
         let inputs = match store.get(&args.inputs) {
             Some(t) => t.clone(),
             None => return Ok(CallToolResult::error(vec![Content::text(
@@ -650,7 +679,7 @@ impl TensorServer {
             )])),
         };
 
-        // Figure out how many layers by checking which weight tensors exist
+        // Count layers
         let mut n_layers = 0;
         while store.contains_key(&format!("{}_w{}", args.mlp, n_layers)) {
             n_layers += 1;
@@ -661,140 +690,311 @@ impl TensorServer {
             )]));
         }
 
-        let mut loss_history = Vec::with_capacity(args.epochs);
+        // Read activation from meta (default tanh for backward compat).
+        let activation = {
+            let meta = self.meta.lock().await;
+            meta.get(&format!("{}_activation", args.mlp))
+                .cloned()
+                .unwrap_or_else(|| "tanh".to_string())
+        };
+
+        // Resolve options with backward-compat defaults.
         let weight_decay = args.weight_decay.unwrap_or(0.0);
         let patience = args.early_stop_patience;
+        let optimizer = args.optimizer.as_deref().unwrap_or("sgd").to_string();
+        let lr_schedule = args.lr_schedule.as_deref().unwrap_or("constant").to_string();
+        let warmup_epochs = args.warmup_epochs.unwrap_or(10);
+        let min_lr = args.min_lr.unwrap_or(0.0);
+        let grad_clip = args.grad_clip;
+        let loss_name = args.loss.as_deref().unwrap_or("mse").to_string();
+        let base_lr = args.lr;
+
+        if !matches!(optimizer.as_str(), "sgd" | "adam" | "adamw") {
+            return Ok(CallToolResult::error(vec![Content::text(
+                format!("Unknown optimizer: '{}'. Supported: sgd, adam, adamw", optimizer),
+            )]));
+        }
+        if !matches!(lr_schedule.as_str(), "constant" | "cosine" | "linear_warmup") {
+            return Ok(CallToolResult::error(vec![Content::text(
+                format!("Unknown lr_schedule: '{}'. Supported: constant, cosine, linear_warmup", lr_schedule),
+            )]));
+        }
+        if !matches!(loss_name.as_str(), "mse" | "cross_entropy") {
+            return Ok(CallToolResult::error(vec![Content::text(
+                format!("Unknown loss: '{}'. Supported: mse, cross_entropy", loss_name),
+            )]));
+        }
+
+        let n_samples = inputs.shape[0];
+        let batch_size = args.batch_size.unwrap_or(n_samples).min(n_samples).max(1);
+        let full_batch = batch_size >= n_samples;
+
+        // For the mini-batch shuffle, use a simple LCG seeded by rng_seed.
+        let mut rng_state: u64 = args.rng_seed.unwrap_or(42);
+        let lcg_next = |s: &mut u64| -> u64 {
+            *s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            *s
+        };
+
+        // Initialize Adam/AdamW moment buffers if needed (zeros).
+        if matches!(optimizer.as_str(), "adam" | "adamw") {
+            for l in 0..n_layers {
+                for &suffix in &["w", "b"] {
+                    let base_name = format!("{}_{}{}", args.mlp, suffix, l);
+                    let base = store.get(&base_name).unwrap().clone();
+                    let m_name = format!("{}_m", base_name);
+                    let v_name = format!("{}_v", base_name);
+                    if !store.contains_key(&m_name) {
+                        store.insert(m_name, Tensor::new(vec![0.0f32; base.data.len()], base.shape.clone()));
+                    }
+                    if !store.contains_key(&v_name) {
+                        store.insert(v_name, Tensor::new(vec![0.0f32; base.data.len()], base.shape.clone()));
+                    }
+                }
+            }
+        }
+
+        let mut loss_history: Vec<f32> = Vec::with_capacity(args.epochs);
         let mut best_loss = f32::INFINITY;
         let mut patience_counter: usize = 0;
         let mut epochs_done: usize = 0;
+        let mut adam_t: u32 = 0;  // Adam iteration counter
 
-        for _epoch in 0..args.epochs {
+        // Sample index scratch buffer for mini-batch shuffle.
+        let mut indices: Vec<usize> = (0..n_samples).collect();
 
-            // Forward pass (all samples at once)
-            let mut activations = vec![inputs.clone()]; // activations[0] = input
-            let mut pre_activations = Vec::new(); // before tanh
+        let feat_dim = inputs.shape[1];
+        let out_dim = targets.shape.get(1).copied().unwrap_or(targets.data.len() / n_samples);
 
-            for l in 0..n_layers {
-                let w = store.get(&format!("{}_w{}", args.mlp, l)).unwrap().clone();
-                let b = store.get(&format!("{}_b{}", args.mlp, l)).unwrap().clone();
-                let prev = activations.last().unwrap();
-
-                // matmul: prev [n_samples, in] @ w [in, out] → [n_samples, out]
-                let rows = prev.shape[0];
-                let cols = w.shape[1];
-                let inner = w.shape[0];
-                let mut result = vec![0.0f32; rows * cols];
-                for i in 0..rows {
-                    for j in 0..cols {
-                        let mut sum = 0.0;
-                        for k in 0..inner {
-                            sum += prev.data[i * inner + k] * w.data[k * cols + j];
-                        }
-                        result[i * cols + j] = sum + b.data[j]; // add bias
+        for epoch in 0..args.epochs {
+            // LR schedule
+            let current_lr = match lr_schedule.as_str() {
+                "cosine" => {
+                    let t = epoch as f32 / args.epochs.max(1) as f32;
+                    min_lr + 0.5 * (base_lr - min_lr) * (1.0 + (std::f32::consts::PI * t).cos())
+                }
+                "linear_warmup" => {
+                    if epoch < warmup_epochs {
+                        base_lr * ((epoch + 1) as f32 / warmup_epochs as f32)
+                    } else {
+                        base_lr
                     }
                 }
+                _ => base_lr,
+            };
 
-                pre_activations.push(Tensor::new(result.clone(), vec![rows, cols]));
-
-                // tanh activation
-                let activated: Vec<f32> = result.iter().map(|x| x.tanh()).collect();
-                activations.push(Tensor::new(activated, vec![rows, cols]));
+            // Shuffle indices if mini-batching (Fisher-Yates with LCG).
+            if !full_batch {
+                for i in (1..n_samples).rev() {
+                    let r = lcg_next(&mut rng_state);
+                    let j = (r as usize) % (i + 1);
+                    indices.swap(i, j);
+                }
             }
 
-            // Compute MSE loss
-            let output = activations.last().unwrap();
-            let n_out = output.data.len() as f32;
-            let loss: f32 = output.data.iter().zip(targets.data.iter())
-                .map(|(p, t)| (p - t).powi(2))
-                .sum::<f32>() / n_out;
-            // loss is used below via loss_history
+            let mut epoch_loss_sum = 0.0f32;
+            let mut epoch_batches = 0usize;
 
-            // Backward pass
-            // d_output = 2 * (output - target) / n_out
-            let mut grad: Vec<f32> = output.data.iter().zip(targets.data.iter())
-                .map(|(p, t)| 2.0 * (p - t) / n_out)
-                .collect();
-            let mut grad_shape = output.shape.clone();
+            // Iterate batches
+            let mut batch_start = 0usize;
+            while batch_start < n_samples {
+                let batch_end = (batch_start + batch_size).min(n_samples);
+                let rows = batch_end - batch_start;
 
-            for l in (0..n_layers).rev() {
-                let w_name = format!("{}_w{}", args.mlp, l);
-                let b_name = format!("{}_b{}", args.mlp, l);
-                let w = store.get(&w_name).unwrap().clone();
-                let prev_act = &activations[l];
-
-                let rows = grad_shape[0];
-
-                // Through tanh: grad *= (1 - activation²)
-                let act = &activations[l + 1];
-                let tanh_grad: Vec<f32> = grad.iter().zip(act.data.iter())
-                    .map(|(g, a)| g * (1.0 - a * a))
-                    .collect();
-
-                // Compute weight gradient: prev_act^T @ tanh_grad
-                let in_f = w.shape[0];
-                let out_f = w.shape[1];
-                let mut w_grad = vec![0.0f32; in_f * out_f];
-                for i in 0..in_f {
-                    for j in 0..out_f {
-                        let mut sum = 0.0;
-                        for s in 0..rows {
-                            sum += prev_act.data[s * in_f + i] * tanh_grad[s * out_f + j];
-                        }
-                        w_grad[i * out_f + j] = sum;
-                    }
-                }
-
-                // Compute bias gradient: sum over samples
-                let mut b_grad = vec![0.0f32; out_f];
-                for s in 0..rows {
-                    for j in 0..out_f {
-                        b_grad[j] += tanh_grad[s * out_f + j];
-                    }
-                }
-
-                // Compute input gradient for next layer: tanh_grad @ w^T
-                let mut input_grad = vec![0.0f32; rows * in_f];
-                for s in 0..rows {
-                    for i in 0..in_f {
-                        let mut sum = 0.0;
-                        for j in 0..out_f {
-                            sum += tanh_grad[s * out_f + j] * w.data[i * out_f + j];
-                        }
-                        input_grad[s * in_f + i] = sum;
-                    }
-                }
-
-                // SGD update with optional L2 weight decay
-                let w_tensor = store.get_mut(&w_name).unwrap();
-                if weight_decay > 0.0 {
-                    for i in 0..w_tensor.data.len() {
-                        let g = w_grad[i] + weight_decay * w_tensor.data[i];
-                        w_tensor.data[i] -= args.lr * g;
-                    }
+                // Gather batch inputs + targets
+                let (batch_input_data, batch_target_data): (Vec<f32>, Vec<f32>) = if full_batch {
+                    (inputs.data.clone(), targets.data.clone())
                 } else {
-                    for i in 0..w_tensor.data.len() {
-                        w_tensor.data[i] -= args.lr * w_grad[i];
+                    let mut bi = Vec::with_capacity(rows * feat_dim);
+                    let mut bt = Vec::with_capacity(rows * out_dim);
+                    for i in batch_start..batch_end {
+                        let idx = indices[i];
+                        bi.extend_from_slice(&inputs.data[idx * feat_dim..(idx + 1) * feat_dim]);
+                        bt.extend_from_slice(&targets.data[idx * out_dim..(idx + 1) * out_dim]);
+                    }
+                    (bi, bt)
+                };
+                let batch_input = Tensor::new(batch_input_data, vec![rows, feat_dim]);
+                let batch_target = Tensor::new(batch_target_data, vec![rows, out_dim]);
+
+                // Forward pass
+                let mut activations = vec![batch_input];
+                let mut pre_activations: Vec<Tensor> = Vec::new();
+                for l in 0..n_layers {
+                    let w = store.get(&format!("{}_w{}", args.mlp, l)).unwrap().clone();
+                    let b = store.get(&format!("{}_b{}", args.mlp, l)).unwrap().clone();
+                    let prev = activations.last().unwrap();
+
+                    let inner = w.shape[0];
+                    let cols = w.shape[1];
+                    let mut result = vec![0.0f32; rows * cols];
+                    for i in 0..rows {
+                        for j in 0..cols {
+                            let mut sum = 0.0;
+                            for k in 0..inner {
+                                sum += prev.data[i * inner + k] * w.data[k * cols + j];
+                            }
+                            result[i * cols + j] = sum + b.data[j];
+                        }
+                    }
+                    pre_activations.push(Tensor::new(result.clone(), vec![rows, cols]));
+
+                    let is_output = l == n_layers - 1;
+                    let skip_activation = is_output && loss_name == "cross_entropy";
+                    let activated: Vec<f32> = if skip_activation {
+                        result
+                    } else {
+                        result.iter().map(|&x| apply_activation(x, &activation)).collect()
+                    };
+                    activations.push(Tensor::new(activated, vec![rows, cols]));
+                }
+
+                // Loss + initial gradient
+                let output = activations.last().unwrap();
+                let n_out = output.data.len() as f32;
+                let (loss, mut grad): (f32, Vec<f32>) = match loss_name.as_str() {
+                    "cross_entropy" => {
+                        // Stable softmax + cross-entropy over rows.
+                        let k = out_dim;
+                        let mut probs = vec![0.0f32; output.data.len()];
+                        let mut row_loss = 0.0f32;
+                        for r in 0..rows {
+                            let row = &output.data[r * k..(r + 1) * k];
+                            let max_logit = row.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                            let exps: Vec<f32> = row.iter().map(|x| (x - max_logit).exp()).collect();
+                            let sum_exp: f32 = exps.iter().sum();
+                            let log_sum = sum_exp.ln() + max_logit;
+                            for j in 0..k {
+                                probs[r * k + j] = exps[j] / sum_exp;
+                                row_loss -= batch_target.data[r * k + j] * (row[j] - log_sum);
+                            }
+                        }
+                        let loss = row_loss / rows as f32;
+                        // dL/dlogits = (softmax - target) / rows
+                        let grad: Vec<f32> = probs.iter().zip(batch_target.data.iter())
+                            .map(|(p, t)| (p - t) / rows as f32)
+                            .collect();
+                        (loss, grad)
+                    }
+                    _ => {
+                        let loss: f32 = output.data.iter().zip(batch_target.data.iter())
+                            .map(|(p, t)| (p - t).powi(2))
+                            .sum::<f32>() / n_out;
+                        let grad: Vec<f32> = output.data.iter().zip(batch_target.data.iter())
+                            .map(|(p, t)| 2.0 * (p - t) / n_out)
+                            .collect();
+                        (loss, grad)
+                    }
+                };
+
+                epoch_loss_sum += loss;
+                epoch_batches += 1;
+
+                // Backward pass — compute grads for every weight/bias
+                let mut w_grads: Vec<Vec<f32>> = vec![Vec::new(); n_layers];
+                let mut b_grads: Vec<Vec<f32>> = vec![Vec::new(); n_layers];
+
+                for l in (0..n_layers).rev() {
+                    let w_name = format!("{}_w{}", args.mlp, l);
+                    let w = store.get(&w_name).unwrap().clone();
+                    let prev_act = &activations[l];
+                    let pre = &pre_activations[l];
+                    let out_a = &activations[l + 1];
+
+                    let is_output = l == n_layers - 1;
+                    let skip_activation_deriv = is_output && loss_name == "cross_entropy";
+
+                    // Apply activation derivative (or pass through for linear output)
+                    let act_grad: Vec<f32> = if skip_activation_deriv {
+                        grad.clone()
+                    } else {
+                        grad.iter().enumerate().map(|(idx, &g)| {
+                            g * activation_deriv(pre.data[idx], out_a.data[idx], &activation)
+                        }).collect()
+                    };
+
+                    let in_f = w.shape[0];
+                    let out_f = w.shape[1];
+
+                    // Weight grad: prev_act^T @ act_grad
+                    let mut w_grad = vec![0.0f32; in_f * out_f];
+                    for i in 0..in_f {
+                        for j in 0..out_f {
+                            let mut sum = 0.0;
+                            for s in 0..rows {
+                                sum += prev_act.data[s * in_f + i] * act_grad[s * out_f + j];
+                            }
+                            w_grad[i * out_f + j] = sum;
+                        }
+                    }
+
+                    let mut b_grad = vec![0.0f32; out_f];
+                    for s in 0..rows {
+                        for j in 0..out_f {
+                            b_grad[j] += act_grad[s * out_f + j];
+                        }
+                    }
+
+                    // Input grad for next layer
+                    let mut input_grad = vec![0.0f32; rows * in_f];
+                    for s in 0..rows {
+                        for i in 0..in_f {
+                            let mut sum = 0.0;
+                            for j in 0..out_f {
+                                sum += act_grad[s * out_f + j] * w.data[i * out_f + j];
+                            }
+                            input_grad[s * in_f + i] = sum;
+                        }
+                    }
+
+                    w_grads[l] = w_grad;
+                    b_grads[l] = b_grad;
+                    grad = input_grad;
+                }
+
+                // Global gradient clipping (L2 norm across all params)
+                if let Some(clip) = grad_clip {
+                    let mut sq_sum = 0.0f32;
+                    for l in 0..n_layers {
+                        for &v in &w_grads[l] { sq_sum += v * v; }
+                        for &v in &b_grads[l] { sq_sum += v * v; }
+                    }
+                    let norm = sq_sum.sqrt();
+                    if norm > clip && norm > 0.0 {
+                        let scale = clip / norm;
+                        for l in 0..n_layers {
+                            for v in w_grads[l].iter_mut() { *v *= scale; }
+                            for v in b_grads[l].iter_mut() { *v *= scale; }
+                        }
                     }
                 }
-                w_tensor.grad = Some(w_grad);
 
-                let b_tensor = store.get_mut(&b_name).unwrap();
-                for i in 0..b_tensor.data.len() {
-                    b_tensor.data[i] -= args.lr * b_grad[i];
+                // Optimizer step
+                adam_t += 1;
+                for l in 0..n_layers {
+                    let w_name = format!("{}_w{}", args.mlp, l);
+                    let b_name = format!("{}_b{}", args.mlp, l);
+
+                    apply_optimizer_step(
+                        &mut store, &w_name, &w_grads[l],
+                        &optimizer, current_lr, weight_decay, adam_t,
+                    );
+                    apply_optimizer_step(
+                        &mut store, &b_name, &b_grads[l],
+                        &optimizer, current_lr, 0.0 /* don't decay biases */, adam_t,
+                    );
                 }
-                b_tensor.grad = Some(b_grad);
 
-                grad = input_grad;
-                grad_shape = vec![rows, in_f];
+                batch_start = batch_end;
             }
 
-            loss_history.push(loss);
+            let epoch_loss = if epoch_batches > 0 { epoch_loss_sum / epoch_batches as f32 } else { 0.0 };
+            loss_history.push(epoch_loss);
             epochs_done += 1;
 
-            // Early stopping: break if no improvement for `patience` epochs
             if let Some(pat) = patience {
-                if loss < best_loss - 1e-6 {
-                    best_loss = loss;
+                if epoch_loss < best_loss - 1e-6 {
+                    best_loss = epoch_loss;
                     patience_counter = 0;
                 } else {
                     patience_counter += 1;
@@ -825,6 +1025,11 @@ impl TensorServer {
                 "loss_history_sampled": sampled,
                 "lr": args.lr,
                 "weight_decay": weight_decay,
+                "optimizer": optimizer,
+                "batch_size": batch_size,
+                "lr_schedule": lr_schedule,
+                "loss": loss_name,
+                "activation": activation,
             })).unwrap()
         )]))
     }
@@ -2176,5 +2381,107 @@ impl TensorServer {
                 "feature_maps": feature_maps,
             })).unwrap()
         )]))
+    }
+}
+
+// ── Training loop helpers ───────────────────────────────────────────────────────
+
+/// Forward activation function dispatch.
+fn apply_activation(x: f32, activation: &str) -> f32 {
+    match activation {
+        "relu" => x.max(0.0),
+        "leaky_relu" => if x > 0.0 { x } else { 0.01 * x },
+        "gelu" => {
+            // tanh-based GELU approximation (BERT/GPT convention).
+            let c = (2.0f32 / std::f32::consts::PI).sqrt();
+            0.5 * x * (1.0 + (c * (x + 0.044715 * x * x * x)).tanh())
+        }
+        _ => x.tanh(),  // default
+    }
+}
+
+/// Activation derivative w.r.t. pre-activation `pre`. `out` = apply_activation(pre).
+/// Some derivatives are cheaper from `out` (tanh), others from `pre` (relu family).
+fn activation_deriv(pre: f32, out: f32, activation: &str) -> f32 {
+    match activation {
+        "relu" => if pre > 0.0 { 1.0 } else { 0.0 },
+        "leaky_relu" => if pre > 0.0 { 1.0 } else { 0.01 },
+        "gelu" => {
+            let c = (2.0f32 / std::f32::consts::PI).sqrt();
+            let inner = c * (pre + 0.044715 * pre * pre * pre);
+            let th = inner.tanh();
+            let sech_sq = 1.0 - th * th;
+            let inner_deriv = c * (1.0 + 3.0 * 0.044715 * pre * pre);
+            0.5 * (1.0 + th) + 0.5 * pre * sech_sq * inner_deriv
+        }
+        _ => 1.0 - out * out,  // tanh: d/dx tanh(x) = 1 - tanh(x)²
+    }
+}
+
+/// Apply one optimizer step to a parameter tensor in-place.
+///
+/// - `sgd`: θ ← θ - lr * (g + wd * θ)  (L2 weight decay folded into the gradient)
+/// - `adam`: θ ← θ - lr * m̂ / (√v̂ + ε)  (weight decay applied as in SGD — "L2" form)
+/// - `adamw`: decoupled weight decay — θ ← θ - lr * (m̂ / (√v̂ + ε) + wd * θ)
+fn apply_optimizer_step(
+    store: &mut std::collections::HashMap<String, crate::tensor::Tensor>,
+    name: &str,
+    grad: &[f32],
+    optimizer: &str,
+    lr: f32,
+    weight_decay: f32,
+    adam_t: u32,
+) {
+    match optimizer {
+        "adam" | "adamw" => {
+            const BETA1: f32 = 0.9;
+            const BETA2: f32 = 0.999;
+            const EPS: f32 = 1e-8;
+            let m_name = format!("{}_m", name);
+            let v_name = format!("{}_v", name);
+
+            let param_data = store.get(name).unwrap().data.clone();
+            let mut m_data = store.get(&m_name).unwrap().data.clone();
+            let mut v_data = store.get(&v_name).unwrap().data.clone();
+
+            let bc1 = 1.0 - BETA1.powi(adam_t as i32);
+            let bc2 = 1.0 - BETA2.powi(adam_t as i32);
+
+            let new_param: Vec<f32> = (0..param_data.len()).map(|i| {
+                let g = if optimizer == "adam" && weight_decay > 0.0 {
+                    grad[i] + weight_decay * param_data[i]
+                } else {
+                    grad[i]
+                };
+                m_data[i] = BETA1 * m_data[i] + (1.0 - BETA1) * g;
+                v_data[i] = BETA2 * v_data[i] + (1.0 - BETA2) * g * g;
+                let m_hat = m_data[i] / bc1;
+                let v_hat = v_data[i] / bc2;
+                let step = lr * m_hat / (v_hat.sqrt() + EPS);
+                let decoupled = if optimizer == "adamw" && weight_decay > 0.0 {
+                    lr * weight_decay * param_data[i]
+                } else { 0.0 };
+                param_data[i] - step - decoupled
+            }).collect();
+
+            if let Some(t) = store.get_mut(name) { t.data = new_param; t.grad = Some(grad.to_vec()); }
+            if let Some(t) = store.get_mut(&m_name) { t.data = m_data; }
+            if let Some(t) = store.get_mut(&v_name) { t.data = v_data; }
+        }
+        _ => {
+            // SGD
+            let t = store.get_mut(name).unwrap();
+            if weight_decay > 0.0 {
+                for i in 0..t.data.len() {
+                    let g = grad[i] + weight_decay * t.data[i];
+                    t.data[i] -= lr * g;
+                }
+            } else {
+                for i in 0..t.data.len() {
+                    t.data[i] -= lr * grad[i];
+                }
+            }
+            t.grad = Some(grad.to_vec());
+        }
     }
 }

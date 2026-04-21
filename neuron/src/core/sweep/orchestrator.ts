@@ -32,6 +32,11 @@ export async function runOneConfig(
     (config.class_weights !== undefined ? `, class_weights="${config.class_weights}"` : "") +
     (config.weight_decay !== undefined ? `, weight_decay=${config.weight_decay}` : "") +
     (config.early_stop_patience !== undefined ? `, early_stop_patience=${config.early_stop_patience}` : "") +
+    (config.optimizer !== undefined ? `, optimizer="${config.optimizer}"` : "") +
+    (config.batch_size !== undefined ? `, batch_size=${config.batch_size}` : "") +
+    (config.lr_schedule !== undefined ? `, lr_schedule="${config.lr_schedule}"` : "") +
+    (config.loss !== undefined ? `, loss="${config.loss}"` : "") +
+    (config.activation !== undefined ? `, activation="${config.activation}"` : "") +
     `, auto_register=false. ` +
     `After training completes, output ONLY a single JSON line: {"run_id":<id>,"accuracy":<val>}`
 

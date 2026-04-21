@@ -113,8 +113,16 @@ export const rsTensor = {
   createTensor: (name: string, data: number[], shape: number[]) =>
     call("tensor_create", { name, data, shape }),
 
-  initMlp: (architecture: number[], name = "mlp") =>
-    call<{ weight_names: string[] }>("init_mlp", { architecture, name }),
+  initMlp: (
+    architecture: number[],
+    name = "mlp",
+    opts?: { activation?: string; init?: string },
+  ) =>
+    call<{ weight_names: string[]; activation?: string; init?: string }>("init_mlp", {
+      architecture, name,
+      ...(opts?.activation !== undefined ? { activation: opts.activation } : {}),
+      ...(opts?.init !== undefined ? { init: opts.init } : {}),
+    }),
 
   trainMlp: (
     mlp: string,
@@ -122,14 +130,38 @@ export const rsTensor = {
     targets: string,
     lr: number,
     epochs: number,
-    opts?: { weight_decay?: number; early_stop_patience?: number },
+    opts?: {
+      weight_decay?: number
+      early_stop_patience?: number
+      optimizer?: string
+      batch_size?: number
+      lr_schedule?: string
+      warmup_epochs?: number
+      min_lr?: number
+      grad_clip?: number
+      loss?: string
+      rng_seed?: number
+    },
   ) =>
-    call<{ loss_history_sampled?: number[]; final_loss?: number; epochs_done?: number; stopped_early?: boolean }>(
+    call<{
+      loss_history_sampled?: number[]; final_loss?: number
+      epochs_done?: number; stopped_early?: boolean
+      optimizer?: string; batch_size?: number; lr_schedule?: string
+      loss?: string; activation?: string
+    }>(
       "train_mlp",
       {
         mlp, inputs, targets, lr, epochs,
         ...(opts?.weight_decay !== undefined ? { weight_decay: opts.weight_decay } : {}),
         ...(opts?.early_stop_patience !== undefined ? { early_stop_patience: opts.early_stop_patience } : {}),
+        ...(opts?.optimizer !== undefined ? { optimizer: opts.optimizer } : {}),
+        ...(opts?.batch_size !== undefined ? { batch_size: opts.batch_size } : {}),
+        ...(opts?.lr_schedule !== undefined ? { lr_schedule: opts.lr_schedule } : {}),
+        ...(opts?.warmup_epochs !== undefined ? { warmup_epochs: opts.warmup_epochs } : {}),
+        ...(opts?.min_lr !== undefined ? { min_lr: opts.min_lr } : {}),
+        ...(opts?.grad_clip !== undefined ? { grad_clip: opts.grad_clip } : {}),
+        ...(opts?.loss !== undefined ? { loss: opts.loss } : {}),
+        ...(opts?.rng_seed !== undefined ? { rng_seed: opts.rng_seed } : {}),
       },
     ),
 

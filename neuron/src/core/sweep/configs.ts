@@ -5,6 +5,11 @@ export interface SweepConfig {
   class_weights?: "balanced"
   weight_decay?: number
   early_stop_patience?: number
+  optimizer?: "sgd" | "adam" | "adamw"
+  batch_size?: number
+  lr_schedule?: "constant" | "cosine" | "linear_warmup"
+  loss?: "mse" | "cross_entropy"
+  activation?: "tanh" | "relu" | "gelu" | "leaky_relu"
 }
 
 export interface SearchSpec {

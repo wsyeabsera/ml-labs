@@ -14,6 +14,16 @@ export interface TrainHyperparams {
   mlpName?: string
   weightDecay?: number
   earlyStopPatience?: number
+  optimizer?: "sgd" | "adam" | "adamw"
+  batchSize?: number
+  lrSchedule?: "constant" | "cosine" | "linear_warmup"
+  warmupEpochs?: number
+  minLr?: number
+  gradClip?: number
+  loss?: "mse" | "cross_entropy"
+  activation?: "tanh" | "relu" | "gelu" | "leaky_relu"
+  initStrategy?: "auto" | "xavier" | "kaiming"
+  seed?: number
 }
 
 export interface TrainProgress {
@@ -157,7 +167,10 @@ export async function trainHead<S>(opts: {
   // 5. Init MLP
   emit({ stage: "init", message: `Initializing MLP [${arch.join(" → ")}]…` })
   throwIfAborted(signal)
-  const { weight_names } = await rsTensor.initMlp(arch, mlpName)
+  const { weight_names } = await rsTensor.initMlp(arch, mlpName, {
+    ...(hyperparams.activation !== undefined ? { activation: hyperparams.activation } : {}),
+    ...(hyperparams.initStrategy !== undefined ? { init: hyperparams.initStrategy } : {}),
+  })
   log(`MLP initialized: [${arch.join(" → ")}] — ${weight_names.length} weight tensors`)
 
   // 6. Train
@@ -168,6 +181,14 @@ export async function trainHead<S>(opts: {
     {
       ...(hyperparams.weightDecay !== undefined ? { weight_decay: hyperparams.weightDecay } : {}),
       ...(hyperparams.earlyStopPatience !== undefined ? { early_stop_patience: hyperparams.earlyStopPatience } : {}),
+      ...(hyperparams.optimizer !== undefined ? { optimizer: hyperparams.optimizer } : {}),
+      ...(hyperparams.batchSize !== undefined ? { batch_size: hyperparams.batchSize } : {}),
+      ...(hyperparams.lrSchedule !== undefined ? { lr_schedule: hyperparams.lrSchedule } : {}),
+      ...(hyperparams.warmupEpochs !== undefined ? { warmup_epochs: hyperparams.warmupEpochs } : {}),
+      ...(hyperparams.minLr !== undefined ? { min_lr: hyperparams.minLr } : {}),
+      ...(hyperparams.gradClip !== undefined ? { grad_clip: hyperparams.gradClip } : {}),
+      ...(hyperparams.loss !== undefined ? { loss: hyperparams.loss } : {}),
+      ...(hyperparams.seed !== undefined ? { rng_seed: hyperparams.seed } : {}),
     },
   )
   const lossHistory = trainResult.loss_history_sampled ?? []

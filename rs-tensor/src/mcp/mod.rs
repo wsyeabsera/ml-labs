@@ -22,6 +22,9 @@ use crate::tensor::Tensor;
 #[derive(Clone)]
 pub struct TensorServer {
     pub(crate) tensors: Arc<Mutex<HashMap<String, Tensor>>>,
+    /// Per-MLP metadata: activation function, init strategy, etc.
+    /// Keyed as `{mlp_name}_activation`, `{mlp_name}_init`, ...
+    pub(crate) meta: Arc<Mutex<HashMap<String, String>>>,
     pub(crate) model: Arc<Mutex<Option<LlamaModel>>>,
     pub(crate) vocab: Arc<Mutex<Vec<String>>>,
     tool_router: ToolRouter<TensorServer>,
@@ -32,6 +35,7 @@ impl TensorServer {
     pub fn new() -> Self {
         Self {
             tensors: Arc::new(Mutex::new(HashMap::new())),
+            meta: Arc::new(Mutex::new(HashMap::new())),
             model: Arc::new(Mutex::new(None)),
             vocab: Arc::new(Mutex::new(Vec::new())),
             tool_router: Self::tool_router(),
