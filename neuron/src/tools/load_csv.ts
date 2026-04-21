@@ -15,7 +15,8 @@ export const schema = {
   label_column: z.string().describe("Column name containing the class label or regression target"),
   feature_columns: z.array(z.string()).optional().describe("Column names to use as features. Omit to use all non-label columns."),
   has_header: z.boolean().default(true).describe("Whether the CSV has a header row (default: true)"),
-  test_size: z.number().min(0).max(0.5).optional().describe("Fraction of data to reserve as test set (e.g. 0.2 for 20%). Stratified by class for classification. Omit to use all data for training."),
+  test_size: z.number().min(0).max(0.5).optional().describe("Fraction of data to reserve as test set (e.g. 0.2 for 20%). Omit to use all data for training."),
+  stratify: z.union([z.literal("auto"), z.boolean()]).default("auto").describe("Whether to preserve class proportions in train/test split. 'auto' (default) enables stratification for classification tasks only; set true/false to override."),
   seed: z.number().int().optional().describe("Seed for the train/test split shuffle. Overrides NEURON_SEED env var. When set, the same seed produces the same split."),
 }
 
@@ -44,8 +45,11 @@ export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
     updateTaskFeatureNames(args.task_id, featureNames)
   }
 
-  // Assign train/test splits (seeded if provided for reproducibility)
-  const splits = assignSplits(rows, task.kind, args.test_size, resolveSeed(args.seed))
+  // Resolve stratify: "auto" → true for classification, false for regression.
+  const stratify = args.stratify === "auto" ? task.kind !== "regression" : args.stratify
+
+  // Assign train/test splits (seeded for reproducibility when seed provided).
+  const splits = assignSplits(rows, task.kind, args.test_size, resolveSeed(args.seed), stratify)
 
   let inserted = 0
   const knownLabels = new Set(task.labels ?? [])
@@ -76,33 +80,33 @@ export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
   }
 }
 
-function assignSplits(
+export function assignSplits(
   rows: { label: string; features: number[] }[],
   kind: string,
   testSize?: number,
   seed?: number,
+  stratify?: boolean,
 ): ("train" | "test")[] {
   const result: ("train" | "test")[] = new Array(rows.length).fill("train")
   if (!testSize || testSize <= 0) return result
 
   const rng = createRng(seed)
+  const doStratify = stratify ?? (kind !== "regression")
 
-  if (kind === "regression") {
-    // Random split for regression (no discrete classes to stratify by)
+  if (!doStratify) {
+    // Plain random split
     const indices = rng.shuffle([...Array(rows.length).keys()])
     const nTest = Math.round(rows.length * testSize)
     for (let i = 0; i < nTest; i++) result[indices[i]!] = "test"
   } else {
-    // Stratified split: preserve class distribution in both splits
+    // Stratified split: preserve class distribution in both splits.
+    // Object.keys preserves insertion order in JS, so we sort for determinism.
     const byClass: Record<string, number[]> = {}
     for (let i = 0; i < rows.length; i++) {
       const label = rows[i]!.label
       if (!byClass[label]) byClass[label] = []
       byClass[label]!.push(i)
     }
-    // Sort class names for deterministic iteration order (Object.values ordering
-    // is insertion-order in JS, which depends on row ordering — explicit sort
-    // makes the split fully reproducible given the same input + seed).
     const classNames = Object.keys(byClass).sort()
     for (const name of classNames) {
       const shuffled = rng.shuffle([...byClass[name]!])
