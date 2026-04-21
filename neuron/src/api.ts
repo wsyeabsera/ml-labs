@@ -37,7 +37,7 @@ if (reaped.runsReaped > 0 || reaped.autoRunsReaped > 0) {
 
 const PORT = parseInt(process.env.NEURON_API_PORT ?? "2626")
 const DIST = process.env.DASHBOARD_DIST ?? join(import.meta.dir, "../../dashboard/dist")
-const VERSION = "1.6.2"
+const VERSION = "1.6.3"
 const DB_DIR = (() => {
   const db = process.env.NEURON_DB
   return db ? join(db, "..") : join(import.meta.dir, "../../data")

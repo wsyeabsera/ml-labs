@@ -1,6 +1,6 @@
 {
   "name": "@ml-labs/cli",
-  "version": "1.6.2",
+  "version": "1.6.3",
   "description": "ML-Labs CLI — init, update, docs",
   "private": true,
   "type": "module",

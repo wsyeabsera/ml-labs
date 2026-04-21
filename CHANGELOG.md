@@ -4,6 +4,46 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v1.6.3 — 2026-04-21
+
+**`load_csv` was PC-crash dangerous on large files.** A user tried loading a 130MB CSV and their machine hung. Three compounding issues:
+
+1. **Per-row inserts without a transaction wrapper.** Each row was its own SQLite commit → hundreds of thousands of WAL fsyncs → disk saturation.
+2. **`updateTaskLabels` called inside the insert loop** whenever a novel class appeared — redundant JSON writes.
+3. **No file-size guard.** A 5GB mistake would try to buffer the whole thing in memory.
+
+### Fixed
+
+- **Batched inserts.** `load_csv` now uses `insertSamplesBatch` in chunks of 5000 rows, each chunk wrapped in a single SQLite transaction. A synthetic 200k-row × 12-feature (~17.5MB) load now completes in **1.4 seconds** (~138k rows/sec). Previously this pattern would fsync ~200k times and take minutes, or stall the machine on a 130MB file.
+- **Labels pre-collected** into a Set from the parsed rows, `updateTaskLabels` called **once** at the end of the load instead of once per novel class during the loop.
+- **File-size guard.** Default cap is **500MB** (well above any normal tabular-ML use). Files beyond the cap raise a clear error pointing the user at the new `max_bytes` override. Loads between 100MB and the cap log a warning. This protects against accidental 5GB drops without blocking legitimate large-but-bounded datasets.
+- **Progress events.** `csv_load_started`, `csv_load_progress` (per batch), `csv_load_completed` fire on the event bus so the dashboard + get_auto_status type flows see forward motion during a long load.
+
+### New schema field
+
+- `load_csv({max_bytes?: number})` — override the 500MB default. Use when you actually need to load a larger file and know your machine can handle it.
+
+### Non-changes
+
+- Parsing still goes through `readFileSync` + `csv-parse/sync` (not streamed). Memory pressure during parse is unchanged; what changed is the insert path. If you hit the memory ceiling at ~1GB+, that's the next thing to fix — open an issue.
+- No schema migration, no rs-tensor rebuild, bench Δ=+0.000.
+- Existing callers are unaffected — the fix is purely internal.
+
+### Verification
+
+- Typecheck clean, bench Δ=+0.000.
+- Smoke test: 200k-row synthetic CSV loads in 1.4s without touching swap.
+- Existing unit tests on `load_csv` pass unchanged (no behavioral diff on small files).
+
+### Upgrade
+
+```bash
+ml-labs update
+ml-labs --version   # prints 1.6.3
+```
+
+---
+
 ## v1.6.2 — 2026-04-21
 
 **Fixes a real interop gap: `publish_model` and `export_model` used incompatible artifact formats.** `publish_model` writes a bundle directory (`meta.json` + `weights.json` + `adapter.hash`); `export_model` returned an inline unified JSON with everything merged. The two didn't round-trip — a published model couldn't be loaded from an `export_model` JSON, and vice versa. Reported after observing the inconsistency in a real workflow.
