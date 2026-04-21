@@ -391,7 +391,7 @@ Every phase has the same skeleton:
 
 ## Phase 6 — Smarter AutoML (hybrid planner + critic)
 
-**Status**: ✅ **Shipped as v0.12.0 on 2026-04-21** (partial — core 4 of 5 items; diagnoser + typed outputs deferred to 6.5). See retro.
+**Status**: ✅ **Shipped as v0.12.0 on 2026-04-21**, completed by v0.12.1 (Phase 6.5) later same day. See retro.
 
 **Goal**: The planner stops being a one-shot prompt and starts being a learning system.
 
@@ -471,11 +471,11 @@ Our 5-dataset bench hits the target in wave 1 thanks to the Phase 3 modern seed 
 
 **Time**: ~2.5 hours across all four pieces.
 
-**Follow-up candidates for Phase 6.5**:
-1. Diagnoser sub-agent (conditional on severity signals).
-2. Zod `outputSchema` sweep across all tools.
-3. Critic mode in planner.
-4. Rule-stats surfaced in the planner prompt (already queryable via `getRuleStats`, just not rendered into the prompt template yet).
+**Follow-up candidates for Phase 6.5** — all addressed except Phase 6.5.2 (tools beyond the 4 chosen):
+1. ✅ Diagnoser sub-agent → shipped in v0.12.1
+2. 🟡 Zod `outputSchema` sweep across all tools → partial: 4 high-value tools in v0.12.1; remaining 33 deferred
+3. ❌ Critic mode in planner → dropped permanently (TPE numeric sanity checks suffice)
+4. ✅ Rule-stats rendered in planner prompt → shipped in v0.12.1
 
 ---
 

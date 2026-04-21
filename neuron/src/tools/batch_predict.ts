@@ -18,6 +18,16 @@ export const schema = {
   has_header: z.boolean().default(true).describe("Whether the CSV has a header row"),
 }
 
+export const outputSchema = {
+  ok: z.boolean(),
+  total: z.number().describe("Number of rows processed"),
+  errors: z.array(z.string()),
+  predictions: z.array(z.record(z.string(), z.unknown())),
+  accuracy: z.number().optional().describe("Overall accuracy if ground-truth labels were provided"),
+  correct: z.number().optional(),
+  calibrated: z.boolean().optional(),
+}
+
 export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
   const model = getRegisteredModel(args.task_id)
   if (!model?.run || (model.run.status !== "completed" && model.run.status !== "imported")) {

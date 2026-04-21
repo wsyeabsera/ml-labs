@@ -16,6 +16,15 @@ export const schema = {
   raw: z.unknown().optional().describe("Raw input (server featurizes via neuron.config.ts)"),
 }
 
+export const outputSchema = {
+  label: z.string().optional().describe("Predicted class (classification)"),
+  confidence: z.number().optional().describe("Max-softmax probability for the predicted class"),
+  scores: z.record(z.string(), z.number()).optional().describe("Per-class probabilities"),
+  value: z.number().optional().describe("Predicted numeric value (regression)"),
+  raw_output: z.number().optional().describe("Unscaled regression output before min-max reverse"),
+  calibrated: z.boolean().optional().describe("True when a temperature was applied to logits"),
+}
+
 export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
   const model = getRegisteredModel(args.task_id)
   if (!model?.run || (model.run.status !== "completed" && model.run.status !== "imported")) {

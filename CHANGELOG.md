@@ -4,6 +4,34 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v0.12.1 — 2026-04-21
+
+### Added — Phase 6.5 (Phase 6 deferred items)
+
+- **Diagnoser sub-agent** (`core/auto/diagnoser.ts`): short Claude query (maxTurns 2, strict JSON out), invoked conditionally when a wave completes with `severity=critical` OR `overfit_gap > 0.2`. Output: `{ primary_cause, evidence[], recommendations[], confidence: "high" | "low" }`. Pure-TS rules fallback when Claude unavailable. Logged into `decision_log` with `stage="diagnose"`.
+- **Rule stats in planner prompt**: `formatRuleStatsForPrompt(fingerprint, minTrials=5)` formats `rule_effectiveness` data as `"rule A: fires 18 × 9 wins (50%); …"`. Passed through `runPlanner` / `runTournament` and rendered in a "RULE HISTORY" section of the prompt when ≥ 5 trials have accumulated on the fingerprint. Lets the Claude planner learn which rules have paid off on this user's task types.
+- **Typed `outputSchema` on 4 high-value tools**: `predict`, `batch_predict`, `evaluate`, `data_audit`. `ToolModule` interface extended; `listTools()` returns `outputSchema` JSON Schema when declared. Claude agents chaining these tools now get structured, validated return shapes.
+
+### Tests
+
+- 155 unit tests (+4 diagnoser tests); bench Δ=+0.000.
+- Diagnoser fallback path validated: overfit → "overfitting"; critical underfit → "underfitting"; output shape invariants enforced.
+
+### Deferred permanently
+
+- **Critic-veto loop on TPE**: dropped. TPE numeric sanity checks are sufficient; no concrete failure to justify Claude latency.
+- **Typed outputs on remaining 33 tools**: out of scope; a focused "MCP cleanliness" pass will batch them when it's worth doing.
+
+### Upgrade
+
+```bash
+ml-labs update
+```
+
+TS-only. No rs-tensor rebuild. Fully backward compatible.
+
+---
+
 ## v0.12.0 — 2026-04-21
 
 ### Added — Phase 6 (smarter AutoML)

@@ -8,6 +8,25 @@ export const schema = {
   run_id: z.number().int().describe("Run ID to evaluate"),
 }
 
+export const outputSchema = {
+  run_id: z.number(),
+  task_id: z.string(),
+  status: z.string(),
+  accuracy: z.number().nullable(),
+  val_accuracy: z.number().nullable(),
+  per_class_accuracy: z.record(z.string(), z.number()).nullable(),
+  confusion_matrix: z.array(z.array(z.number())).nullable(),
+  loss_history: z.array(z.number()).nullable(),
+  mae: z.number().nullable(),
+  rmse: z.number().nullable(),
+  r2: z.number().nullable(),
+  sample_counts: z.record(z.string(), z.number()).nullable(),
+  hyperparams: z.record(z.string(), z.unknown()),
+  started_at: z.number().nullable(),
+  finished_at: z.number().nullable(),
+  duration_s: z.number().nullable(),
+}
+
 export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
   const run = getRun(args.run_id)
   if (!run) throw new Error(`Run ${args.run_id} not found`)

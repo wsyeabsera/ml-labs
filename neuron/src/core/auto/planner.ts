@@ -30,11 +30,16 @@ function buildPlannerPrompt(
   reflection: AutoLogEntry[],
   fallback: RefinementPlan,
   strategy: PlannerStrategy,
+  ruleStatsText: string | null,
 ): string {
   const recent = reflection.slice(-6).map((e) => `  [${e.stage}] ${e.note}`).join("\n")
+  const ruleStatsSection = ruleStatsText
+    ? `\nRULE HISTORY (on tasks with this fingerprint):\n${ruleStatsText}\n`
+    : ""
   return `You are the wave planner for the Neuron auto-trainer (strategy: ${strategy}). You only decide what hyperparameter configs to try next.
 
 STRATEGY DIRECTIVE: ${STRATEGY_INSTRUCTIONS[strategy]}
+${ruleStatsSection}
 
 TASK: "${bundle.task_id}" (kind=${bundle.task_kind})
 TARGET: ${bundle.target.metric} ≥ ${bundle.target.value}
@@ -78,10 +83,14 @@ export async function runPlanner(opts: {
   reflection: AutoLogEntry[]
   fallback: RefinementPlan
   strategy?: PlannerStrategy
+  ruleStatsText?: string | null
   signal?: AbortSignal
 }): Promise<PlannerPlan> {
   const strategy = opts.strategy ?? "balanced"
-  const prompt = buildPlannerPrompt(opts.bundle, opts.reflection, opts.fallback, strategy)
+  const prompt = buildPlannerPrompt(
+    opts.bundle, opts.reflection, opts.fallback, strategy,
+    opts.ruleStatsText ?? null,
+  )
   const ac = new AbortController()
   if (opts.signal) opts.signal.addEventListener("abort", () => ac.abort())
 
@@ -150,6 +159,7 @@ export async function runTournament(opts: {
   bundle: SignalBundle
   reflection: AutoLogEntry[]
   fallback: RefinementPlan
+  ruleStatsText?: string | null
   signal?: AbortSignal
 }): Promise<PlannerPlan> {
   const strategies: PlannerStrategy[] = ["aggressive", "conservative", "exploratory"]

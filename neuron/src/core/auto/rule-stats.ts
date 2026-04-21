@@ -71,3 +71,19 @@ export function totalTrialsFor(fingerprint: string): number {
   ).get(fingerprint) as { total: number } | null
   return row?.total ?? 0
 }
+
+/**
+ * Format rule stats as a compact prompt-friendly block. Returns null when
+ * total trials < `minTrials` — we don't want to feed noisy signal to the planner
+ * until the per-fingerprint history is meaningful.
+ */
+export function formatRuleStatsForPrompt(fingerprint: string, minTrials = 5): string | null {
+  if (totalTrialsFor(fingerprint) < minTrials) return null
+  const stats = getRuleStats(fingerprint)
+  const entries = Object.entries(stats).sort((a, b) => b[1].fired - a[1].fired)
+  if (entries.length === 0) return null
+  return entries.slice(0, 8).map(([name, s]) => {
+    const winRate = s.fired > 0 ? (s.wins / s.fired) * 100 : 0
+    return `  ${name}: fires ${s.fired} × ${s.wins} wins (${winRate.toFixed(0)}%)`
+  }).join("\n")
+}

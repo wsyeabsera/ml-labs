@@ -46,6 +46,7 @@ type ToolModule = {
   name: string
   description: string
   schema: AnySchema
+  outputSchema?: AnySchema
   handler: (args: Record<string, unknown>, ctx: { server: Server }) => Promise<unknown>
 }
 
@@ -62,19 +63,38 @@ const modules: ToolModule[] = [
 ] as ToolModule[]
 
 export function listTools() {
-  return modules.map((m) => ({
-    name: m.name,
-    description: m.description,
-    inputSchema: {
-      type: "object" as const,
-      properties: Object.fromEntries(
-        Object.entries(m.schema).map(([k, v]) => [k, zodToJsonSchemaProperty(v)])
-      ),
-      required: Object.entries(m.schema)
-        .filter(([, v]) => !v.isOptional())
-        .map(([k]) => k),
-    },
-  }))
+  return modules.map((m) => {
+    const entry: {
+      name: string
+      description: string
+      inputSchema: Record<string, unknown>
+      outputSchema?: Record<string, unknown>
+    } = {
+      name: m.name,
+      description: m.description,
+      inputSchema: {
+        type: "object" as const,
+        properties: Object.fromEntries(
+          Object.entries(m.schema).map(([k, v]) => [k, zodToJsonSchemaProperty(v)])
+        ),
+        required: Object.entries(m.schema)
+          .filter(([, v]) => !v.isOptional())
+          .map(([k]) => k),
+      },
+    }
+    if (m.outputSchema) {
+      entry.outputSchema = {
+        type: "object" as const,
+        properties: Object.fromEntries(
+          Object.entries(m.outputSchema).map(([k, v]) => [k, zodToJsonSchemaProperty(v)])
+        ),
+        required: Object.entries(m.outputSchema)
+          .filter(([, v]) => !v.isOptional())
+          .map(([k]) => k),
+      }
+    }
+    return entry
+  })
 }
 
 export async function dispatchTool(

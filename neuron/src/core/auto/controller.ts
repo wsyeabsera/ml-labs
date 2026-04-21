@@ -8,7 +8,10 @@ import { refineFromSignals, shouldContinue } from "./rules"
 import { runPlanner, runTournament, seedPlan } from "./planner"
 import { tpePlan } from "./tpe_adapter"
 import { lookupBestPattern, savePattern, taskFingerprint } from "./patterns"
-import { recordRulesFired, recordRulesProducedWinner } from "./rule-stats"
+import { recordRulesFired, recordRulesProducedWinner, formatRuleStatsForPrompt } from "./rule-stats"
+import { runDiagnoser, shouldDiagnose } from "./diagnoser"
+import { getRun } from "../db/runs"
+import { getTask } from "../db/tasks"
 import {
   saveVerdictJson,
   verdictSummaryOneLiner,
@@ -175,9 +178,10 @@ export async function runController(args: ControllerArgs): Promise<ControllerRes
       } else {
         const autoRunNow = getAutoRun(args.auto_run_id)
         const reflection = autoRunNow?.decision_log ?? []
+        const ruleStatsText = formatRuleStatsForPrompt(fingerprint)
         plan = args.tournament
-          ? await runTournament({ bundle, reflection, fallback: rulesFallback, signal: ac.signal })
-          : await runPlanner({ bundle, reflection, fallback: rulesFallback, signal: ac.signal })
+          ? await runTournament({ bundle, reflection, fallback: rulesFallback, ruleStatsText, signal: ac.signal })
+          : await runPlanner({ bundle, reflection, fallback: rulesFallback, ruleStatsText, signal: ac.signal })
       }
     }
 
@@ -282,6 +286,29 @@ export async function runController(args: ControllerArgs): Promise<ControllerRes
 
     // Update waves_used on the auto_run row eagerly for cross-process polling
     updateAutoRun(args.auto_run_id, { waves_used: wavesDone })
+
+    // Diagnose if signals warrant (severity=critical or overfit_gap > 0.2).
+    // Skipped on target-reached — everything's fine.
+    if (bestThisWave && shouldDiagnose(bestThisWave) &&
+        (bestThisWave.metric ?? -Infinity) < args.accuracy_target) {
+      const fullRun = getRun(bestThisWave.run_id)
+      const diagnosis = await runDiagnoser({
+        bundle: postBundle,
+        bestRun: bestThisWave,
+        reflection: getAutoRun(args.auto_run_id)?.decision_log ?? [],
+        confusionMatrix: fullRun?.confusionMatrix ?? null,
+        labels: getTask(args.task_id)?.labels ?? null,
+        signal: ac.signal,
+      })
+      log(args.auto_run_id, "diagnose",
+        `${diagnosis.primary_cause} (confidence=${diagnosis.confidence}, source=${diagnosis.source})`,
+        {
+          primary_cause: diagnosis.primary_cause,
+          evidence: diagnosis.evidence,
+          recommendations: diagnosis.recommendations,
+          source: diagnosis.source,
+        })
+    }
 
     // Early stop if target hit
     if (bestThisWave?.metric != null && bestThisWave.metric >= args.accuracy_target) {

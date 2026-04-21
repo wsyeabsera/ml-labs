@@ -12,6 +12,18 @@ export const schema = {
   task_id: z.string().describe("Task ID"),
 }
 
+export const outputSchema = {
+  ok: z.boolean(),
+  task_id: z.string(),
+  verdict: z.string().describe("preflight verdict: ready, warning, not_ready"),
+  summary: z.string().nullable(),
+  total: z.number(),
+  splits: z.object({ train: z.number(), test: z.number() }).nullable(),
+  class_distribution: z.record(z.string(), z.number()).nullable(),
+  imbalance_ratio: z.number().nullable(),
+  warnings: z.array(z.string()),
+}
+
 export async function handler(
   args: z.infer<z.ZodObject<typeof schema>>,
   ctx: { server: Server },
