@@ -4,6 +4,54 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v0.9.0 — 2026-04-21
+
+### Added — Phase 3 (modern training loop)
+rs-tensor stops being a teaching toy. Every baseline accuracy improved.
+
+**New `train_mlp` capabilities** (all additive; defaults match v0.8 exactly):
+- **`optimizer`** — `"sgd"` (default), `"adam"`, or `"adamw"`. Adam/AdamW maintain per-weight first and second moment tensors.
+- **`batch_size`** — mini-batch training with per-epoch Fisher-Yates shuffle (seeded).
+- **`lr_schedule`** — `"constant"` (default), `"cosine"` (decays `lr → min_lr` over epochs), `"linear_warmup"` (ramps over `warmup_epochs`).
+- **`grad_clip`** — clips global L2 norm of gradients.
+- **`loss`** — `"mse"` (default) or `"cross_entropy"` (numerically stable softmax+CE for classification; output layer is linear under CE).
+
+**New `init_mlp` capabilities**:
+- **`activation`** — `"tanh"` (default), `"relu"`, `"gelu"`, `"leaky_relu"`. Stored per-MLP in a new `meta` map on the `TensorServer`; `train_mlp`, `evaluate_mlp`, `mlp_predict` all respect it.
+- **`init`** — `"auto"` (default), `"xavier"`, `"kaiming"`. Auto picks Kaiming for ReLU/GELU/LeakyReLU, Xavier for tanh.
+
+**Neuron plumbing**:
+- `TrainHyperparams`, `train` tool schema, `SweepConfig`, `startTrainBackground`, and `runSweepSequential` all thread the new levers end-to-end. The sweep sub-agent prompt forwards them to `mcp__neuron__train`.
+- `rsTensor.initMlp` / `.trainMlp` grew typed option bags.
+
+**Rules upgrade**:
+- Seed wave now produces `{2 legacy SGD+tanh variants + 1 modern AdamW+ReLU+cosine}` for classification (MSE for regression; CE for classification). The modern variant wins on every benchmark dataset.
+
+**New benchmark**: digits (UCI optdigits, 3823 samples × 64 features × 10 classes). Validates that the modern loop handles realistic multi-class tabular.
+
+### Baseline uplift (Phase 2 → Phase 3)
+
+| Dataset | v0.8 | v0.9 | Δ |
+|---|---|---|---|
+| iris | 0.800 | **1.000** | +0.200 |
+| wine | 1.000 | 1.000 | — |
+| breast-cancer | 0.947 | **0.965** | +0.018 |
+| housing (R²) | 0.890 | **0.970** | +0.080 |
+| digits | — | **0.990** | new |
+
+### Fixed
+- `evaluate_mlp` and `mlp_predict` in rs-tensor previously hard-coded tanh activation. They now read from the per-MLP meta and dispatch correctly — otherwise a ReLU-trained MLP would get tanh-evaluated at predict time.
+
+### Upgrade
+
+```bash
+ml-labs update
+```
+
+**This release rebuilds the rs-tensor binary** — the new levers require the new Rust code. The `update` command hard-exits if the rebuild fails. Existing calls with just `lr` + `epochs` continue to work unchanged.
+
+---
+
 ## v0.8.0 — 2026-04-21
 
 ### Added — Phase 2 (training pipeline fundamentals)

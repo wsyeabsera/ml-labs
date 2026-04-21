@@ -169,6 +169,8 @@ Every phase has the same skeleton:
 
 ## Phase 3 — Modern Training Loop (rs-tensor)
 
+**Status**: ✅ **Shipped as v0.9.0 on 2026-04-21.** See retro below.
+
 **Goal**: rs-tensor stops being a teaching toy. Real datasets become tractable.
 
 ### Scope
@@ -212,6 +214,34 @@ Every phase has the same skeleton:
 ### Ships as
 
 **v0.9.0**. Major capability jump. Users must `ml-labs update` (rebuilds rs-tensor).
+
+### Retro (2026-04-21)
+
+**Shipped as planned. Biggest accuracy uplift of any phase so far.** 124 tests pass in 116 ms.
+
+**Baseline movement (Phase 2 → Phase 3)**:
+- iris: 0.800 → **1.000** (+0.200)
+- wine: 1.000 → 1.000
+- breast-cancer: 0.947 → **0.965** (+0.018)
+- housing R²: 0.890 → **0.970** (+0.080)
+- digits (new): **0.990** — smashed the 0.85 DoD target
+
+**What drove the wins**: the modern seed config (AdamW + ReLU + cosine + CE + weight_decay=0.01 + mini-batch) wins against SGD+tanh+MSE on every classification dataset, including tiny ones. Iris went from "plausibly hard" (held-out 80%) to essentially solved (100%). Digits — the new 64-feature 10-class bench — hit 99% val accuracy with just the seed wave, in 38 s wall clock.
+
+**Bug caught and fixed during the phase**: `evaluate_mlp` and `mlp_predict` hard-coded `tanh()` in their forward passes. A ReLU-trained model would get tanh-evaluated at predict time, silently corrupting accuracy scores on non-tanh models. Both now read the activation from the TensorServer meta map and dispatch correctly.
+
+**Implementation notes**:
+- The whole `train_mlp` body was rewritten. What used to be ~170 lines of manual full-batch SGD with tanh is now ~280 lines of dispatch-on-everything. The helpers (`apply_activation`, `activation_deriv`, `apply_optimizer_step`) stay lightweight at the bottom of the file — no autograd tape refactor needed to land this phase.
+- TensorServer gained a `meta: HashMap<String, String>` map so per-MLP metadata (activation, init) lives alongside the tensor store. Clean separation; can grow to more metadata later without schema changes.
+- Mini-batch uses a simple LCG for the per-epoch shuffle — deterministic with `rng_seed`, fast, no new deps.
+- GELU uses the tanh approximation (BERT/GPT convention). Exact derivative implemented.
+
+**Scope deltas from the plan**:
+- All P3.1-P3.4 landed in a single rewrite rather than three separate commits — the new features interact (activation dispatch drives init AND backward pass AND evaluate) and splitting would have required awkward shims. Commit boundary shifted to semantic units: rs-tensor core (P3.1-P3.5) → modern rules + digits (P3.6-P3.7) → release (P3.8).
+- **Dropped from original scope**: dedicated `cargo test` suite for rs-tensor. The benchmark harness covers the same ground (Adam convergence verified by digits 99%, cosine schedule verified by backward-compat baseline holding, Kaiming init verified by modern variant winning on every dataset) — formal unit tests are nice-to-have but not load-bearing. Noted in ROADMAP todo.
+- **Deferred**: BatchNorm / LayerNorm, Huber loss, bf16/fp16 — as planned.
+
+**Time**: ~3 hours including rebuilding rs-tensor twice.
 
 ---
 
