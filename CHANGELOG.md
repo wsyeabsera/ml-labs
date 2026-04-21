@@ -4,6 +4,35 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v1.7.2 — 2026-04-21
+
+**Terminal now shows training progress on long runs.** User ran Fashion-MNIST auto_train after v1.7.1's memory fix, training worked, but the terminal was silent after `Creating training tensors [59990 × 784]…` for minutes. Per-epoch progress was always being emitted to the dashboard events bus — just not echoed to the MCP server's terminal. Fine for a 500ms Pima run; awful for a 10-minute Fashion-MNIST run.
+
+### Added
+
+- **Periodic terminal log during training.** Every 10% of epochs (or every 30 seconds, whichever first), the MCP server logs:
+  ```
+  Training: epoch 40/400 (127s elapsed, ~380s left) — loss 0.317
+  ```
+  Reveals that the training is alive and roughly how much longer to wait. Doesn't spam — for a 400-epoch run you get ~10 lines.
+- **Tensor-upload log when slow.** If the `createTensor` calls for inputs + targets take ≥5 seconds (which they do for 60k × 784), logs `Tensors uploaded to rs-tensor in Xs (N × D input, M target values)`. For small datasets the line is suppressed.
+- **Explicit "Training started" log** at the top of every run with epochs × N + LR + optimizer + batch_size context, so you know what's actually running.
+
+### Non-changes
+
+- No algorithmic changes. Training path and output unchanged.
+- Dashboard progress path unchanged — was already getting per-epoch events.
+- Bench Δ=+0.000 (short trainings don't trigger the periodic log — neither 10% threshold nor 30s threshold crosses).
+
+### Upgrade
+
+```bash
+ml-labs update
+ml-labs --version   # prints 1.7.2
+```
+
+---
+
 ## v1.7.1 — 2026-04-21
 
 **Fixes Fashion-MNIST (60k × 784) OOM during training.** User's machine crashed when `auto_train` hit a wave that tried to materialize 60k × 784 feature arrays as nested JS objects, then copied them for normalization, then flattened them. Peak ~3GB JS heap, easy crash on 8GB laptops.

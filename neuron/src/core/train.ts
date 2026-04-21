@@ -274,8 +274,14 @@ async function trainFromFlat(args: TrainFromFlatArgs): Promise<TrainResult> {
   }
 
   throwIfAborted(signal)
+  // For large tensors this send dominates wall-clock ("Creating training tensors"
+  // can sit silent for 10-30s on 60k × 784). Log explicitly so the user isn't
+  // left guessing whether the process stalled.
+  const sendT0 = Date.now()
   await rsTensor.createTensor(inputsName, inputs, [N, D])
   await rsTensor.createTensor(targetsName, targets, isRegression ? [N, 1] : [N, K])
+  const sendS = Math.round((Date.now() - sendT0) / 1000)
+  if (sendS >= 5) log(`Tensors uploaded to rs-tensor in ${sendS}s (${N} × ${D} input, ${targets.length} target values)`)
 
   // 5. Init MLP
   emit({ stage: "init", message: `Initializing MLP [${arch.join(" → ")}]…` })
@@ -287,8 +293,16 @@ async function trainFromFlat(args: TrainFromFlatArgs): Promise<TrainResult> {
   log(`MLP initialized: [${arch.join(" → ")}] — ${weight_names.length} weight tensors`)
 
   // 6. Train
+  log(`Training started: ${hyperparams.epochs} epochs × N=${N} (lr=${hyperparams.lr}${hyperparams.optimizer ? `, optimizer=${hyperparams.optimizer}` : ""}${hyperparams.batchSize ? `, batch_size=${hyperparams.batchSize}` : ""}). Progress every 10% of epochs or 30s, whichever first.`)
   emit({ stage: "train", message: `Training for ${hyperparams.epochs} epochs (lr=${hyperparams.lr})…` })
   throwIfAborted(signal)
+  // Periodic terminal logging during long trainings. The existing emit() path
+  // still fires per epoch for dashboard events; this adds visibility for users
+  // watching the MCP server terminal (v1.7.2 UX fix).
+  const trainStartTs = Date.now()
+  let lastLogEpoch = 0
+  let lastLogTs = trainStartTs
+  const logEvery = Math.max(1, Math.floor(hyperparams.epochs / 10))
   const trainResult = await rsTensor.trainMlp(
     mlpName, inputsName, targetsName, hyperparams.lr, hyperparams.epochs,
     {
@@ -305,9 +319,26 @@ async function trainFromFlat(args: TrainFromFlatArgs): Promise<TrainResult> {
       ...(hyperparams.swa !== undefined ? { swa: hyperparams.swa } : {}),
       ...(hyperparams.swaStartEpoch !== undefined ? { swa_start_epoch: hyperparams.swaStartEpoch } : {}),
       ...(hyperparams.labelSmoothing !== undefined ? { label_smoothing: hyperparams.labelSmoothing } : {}),
-      // Stream per-epoch progress from rs-tensor through to the caller's
-      // onProgress (already throttled + routed to events by trainBg).
-      onProgress: (p) => emit({ stage: "train", i: p.progress, n: p.total, message: p.message ?? "" }),
+      onProgress: (p) => {
+        emit({ stage: "train", i: p.progress, n: p.total, message: p.message ?? "" })
+        // Periodic terminal log so the user sees the training is alive.
+        const epoch = p.progress
+        const total = p.total ?? hyperparams.epochs
+        const now = Date.now()
+        if (
+          (epoch - lastLogEpoch >= logEvery && epoch > 0) ||
+          now - lastLogTs > 30_000
+        ) {
+          lastLogEpoch = epoch
+          lastLogTs = now
+          const elapsedS = Math.round((now - trainStartTs) / 1000)
+          const etaS = epoch > 0 && total > epoch
+            ? Math.round((elapsedS / epoch) * (total - epoch))
+            : null
+          const msg = p.message ? ` — ${p.message}` : ""
+          log(`Training: epoch ${epoch}/${total} (${elapsedS}s elapsed${etaS != null ? `, ~${etaS}s left` : ""})${msg}`)
+        }
+      },
     },
   )
   const lossHistory = trainResult.loss_history_sampled ?? []
