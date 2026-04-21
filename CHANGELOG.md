@@ -4,6 +4,64 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v1.0.0 — 2026-04-21 🎉
+
+**The 1.0 milestone.** ml-labs is now a production platform: train → publish → serve over HTTP → monitor for drift → retrain. Eight ROADMAP phases shipped in sequence; this release closes Phase 8 (production story MVP).
+
+### Added — Phase 8 (production story)
+
+- **Bundle-serving HTTP endpoints** — published models are now servable.
+  - `POST /api/registry/:name@:version/predict` — single-sample inference against a registry bundle. Returns `{label, confidence, scores, calibrated, model_uri, latency_ms}`.
+  - `POST /api/registry/:name@:version/batch_predict` — batch inference (up to 10,000 rows).
+  - Respects Phase 4 **calibration temperature** — confidence scores match what `predict` / `batch_predict` tools return.
+  - Respects bundle-stored `normStats` when present.
+- **Bearer-token auth** — optional via `NEURON_SERVE_TOKEN` env var. When set, requests without `Authorization: Bearer <token>` return 401. When unset, endpoints are open (single-user default).
+- **Prediction logging** — new `predictions` SQL table: `(id, task_id, run_id, model_uri, features JSON, output JSON, ts, latency_ms)`. Every call through the bundle-serving endpoints gets logged. Sampling rate via `NEURON_PREDICTION_SAMPLE_RATE` env var (default `1.0` = 100%, `0` disables).
+- **Drift detection** (`core/drift.ts`):
+  - PSI (Population Stability Index) with 10-decile reference binning.
+  - Two-sample Kolmogorov-Smirnov with Smirnov p-value approximation.
+  - Per-feature verdict: `stable` (PSI < 0.1), `drifting` (0.1 ≤ PSI < 0.25), `severe` (PSI ≥ 0.25 or KS p < 0.01), `insufficient_data` (< 30 samples either side).
+- **`drift_check` MCP tool** — runs the detection end-to-end: training samples vs last N predictions. Returns structured per-feature report.
+- **`/api/tasks/:id/drift` HTTP endpoint** — wraps `drift_check` for dashboard use.
+- **`/drift` dashboard route** — per-task drift cards; click to expand and see per-feature PSI / KS p / verdict. Color-coded (green / amber / red).
+
+### Tests
+
+- **181 unit tests** including 15 new for drift (PSI sanity on identical / shifted Gaussians, KS p-value correctness, verdict thresholds, end-to-end report).
+- Bench Δ=+0.000 across all 5 datasets — serving infra is purely additive.
+
+### Deferred to Phase 8.5 (future)
+
+- **Shadow / canary routing** — `active_models.weight` column, weighted routing, `shadow_comparisons` table.
+- **Auto-retrain banner** — `drift_detected` event → dashboard banner with one-click `/neuron-auto`.
+- **ONNX export** — for interoperability with non-rs-tensor runtimes.
+- **Integration tests** — HTTP serving latency P99, drift simulation end-to-end.
+
+### The ROADMAP phases
+
+| Phase | Release | Theme |
+|---|---|---|
+| 1 | v0.7.0 | Test & benchmark foundation |
+| 2 | v0.8.0 | Training pipeline fundamentals (CV, stratification, reproducibility) |
+| 3 | v0.9.0 | Modern training loop (Adam, LR schedules, mini-batch, activations, CE loss) |
+| 4 | v0.10.0 | Calibration & small-model wins (temperature scaling, SWA, label smoothing) |
+| 5 | v0.11.0 | Progress streaming + timeout hygiene |
+| 6 | v0.12.0 | Smarter AutoML (TPE + meta-tools + rule-effectiveness) |
+| 6.5 | v0.12.1 | Diagnoser + rule stats in prompt + typed outputs |
+| 7A | v0.13.0 | Active-learning backend (hybrid uncertainty+diversity, auto_collect loop) |
+| 7.5 | v0.14.0 | Dashboard UX (multi-run compare, confusion drill-through) |
+| **8** | **v1.0.0** | **Production story: serving + logging + drift** |
+
+### Upgrade
+
+```bash
+ml-labs update
+```
+
+TS/TSX-only; no rs-tensor rebuild. The `predictions` table is auto-migrated via the existing `ensureColumns` pattern.
+
+---
+
 ## v0.14.0 — 2026-04-21
 
 ### Added — Phase 7.5 (dashboard UX pass)

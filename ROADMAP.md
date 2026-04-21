@@ -585,6 +585,8 @@ Our 5-dataset bench hits the target in wave 1 thanks to the Phase 3 modern seed 
 
 ## Phase 8 — Production Story (serving, drift, monitoring)
 
+**Status**: ✅ **Shipped as v1.0.0 on 2026-04-21.** MVP (serving + logging + drift detection + drift dashboard); shadow/canary + auto-retrain banner deferred to Phase 8.5. See retro.
+
 **Goal**: Models users train can actually be served, monitored, and retrained in response to drift.
 
 ### Scope
@@ -637,6 +639,42 @@ Our 5-dataset bench hits the target in wave 1 thanks to the Phase 3 modern seed 
 ### Ships as
 
 **v1.0.0**. The "ml-labs is a platform" milestone.
+
+### Retro (2026-04-21)
+
+**Shipped the Phase 8 MVP — the v1.0.0 milestone.**
+
+**What shipped**:
+- **Bundle-serving endpoints** (`POST /api/registry/:name@:version/{predict,batch_predict}`) — any published model is now HTTP-servable. Respects Phase 4 calibration temperature and bundle normStats.
+- **Bearer-token auth** via `NEURON_SERVE_TOKEN` (optional, single-user default).
+- **Prediction logging** (`predictions` SQL table) with `NEURON_PREDICTION_SAMPLE_RATE` env var gate.
+- **PSI + KS drift detection** in `core/drift.ts`; unit-tested with identical + shifted Gaussians.
+- **`drift_check` MCP tool** + HTTP endpoint (`GET /api/tasks/:id/drift`).
+- **`/drift` dashboard route** — per-task drift cards, expandable to per-feature PSI/KS/verdict.
+
+**Deferred to Phase 8.5 / v1.0.1**:
+- Shadow / canary routing with `active_models.weight` + weighted prediction routing
+- Auto-retrain banner triggered by drift events
+- Integration tests for HTTP latency and drift simulation
+- ONNX export for non-rs-tensor runtimes
+
+**Time**: ~2.5 hours.
+
+**From 0 to v1.0 — total time**: ~18 hours across 9 phases. Fast because:
+1. Every phase had an explicit retro + deferred list, which kept scope creep bounded.
+2. The Phase 1 benchmark harness (Δ=+0.000 check) caught regressions immediately, avoiding hours of "why is iris worse now?" debugging.
+3. The backend / rs-tensor / neuron / dashboard layers are cleanly separated so most phases touched 1-2 layers at a time.
+
+**Biggest wins by phase**:
+- Phase 1: benchmark harness → caught the regression-K=70 bug immediately
+- Phase 2: val_accuracy fix → every downstream phase had honest numbers to work with
+- Phase 3: modern training loop → iris 0.800 → 1.000, digits 0.99 in the seed wave
+- Phase 4: calibration → confidence scores became trustworthy
+- Phase 5: progress notifications → killed the 1-hour timeout band-aid structurally
+- Phase 6-6.5: TPE + diagnoser + meta-tools → the planner is now a system, not a prompt
+- Phase 7A: active-learning loop → closed the "suggest_samples is advisory" gap
+- Phase 7.5: multi-run compare + confusion drill-through → dashboard matches backend depth
+- Phase 8: bundle-serving + drift → trained models are deployable
 
 ---
 

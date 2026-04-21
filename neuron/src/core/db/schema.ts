@@ -159,3 +159,18 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_rule_eff_fp ON rule_effectiveness(task_fingerprint);
 `)
+
+// predictions — log of every served prediction for drift detection + audit
+db.exec(`
+  CREATE TABLE IF NOT EXISTS predictions (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id     TEXT NOT NULL,
+    run_id      INTEGER,
+    model_uri   TEXT,
+    features    TEXT NOT NULL,
+    output      TEXT NOT NULL,
+    ts          INTEGER NOT NULL DEFAULT (CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)),
+    latency_ms  INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_predictions_task_ts ON predictions(task_id, ts DESC);
+`)

@@ -161,6 +161,28 @@ export interface ApiInspect {
   warnings?: string[]
 }
 
+export interface ApiDriftFeature {
+  feature_idx: number
+  feature_name: string
+  psi: number
+  ks_statistic: number | null
+  ks_p_value: number | null
+  ref_n: number
+  cur_n: number
+  verdict: "stable" | "drifting" | "severe" | "insufficient_data"
+}
+
+export interface ApiDriftReport {
+  ok: boolean
+  task_id: string
+  ref_window_size: number
+  cur_window_size: number
+  features: ApiDriftFeature[]
+  verdict_summary: { stable: number; drifting: number; severe: number; insufficient_data: number }
+  overall_verdict: "stable" | "drifting" | "severe" | "insufficient_data"
+  reason?: string
+}
+
 export interface ApiConfusionDrill {
   ok: boolean
   run_id: number
@@ -280,6 +302,9 @@ export const api = {
       if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`)
       return data as { ok: true; id: number }
     }),
+
+  drift: (taskId: string, windowSize = 1000) =>
+    get<ApiDriftReport>(`/tasks/${encodeURIComponent(taskId)}/drift?window=${windowSize}`),
 
   runConfusions: (runId: number, trueLabel: string, predLabel: string) => {
     const url = new URL(`${window.location.origin}${BASE}/runs/${runId}/confusions`)

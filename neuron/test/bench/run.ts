@@ -14,7 +14,7 @@ async function main() {
   let regressCount = 0
 
   const SEED = 42
-  const NEURON_VERSION = "0.14.0"
+  const NEURON_VERSION = "1.0.0"
 
   console.log(`\n=== ml-labs benchmark harness ===`)
   console.log(`Running ${names.length} bench(es): ${names.join(", ")}`)

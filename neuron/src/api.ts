@@ -25,7 +25,7 @@ import { db } from "./core/db/schema"
 
 const PORT = parseInt(process.env.NEURON_API_PORT ?? "2626")
 const DIST = process.env.DASHBOARD_DIST ?? join(import.meta.dir, "../../dashboard/dist")
-const VERSION = "0.14.0"
+const VERSION = "1.0.0"
 const DB_DIR = (() => {
   const db = process.env.NEURON_DB
   return db ? join(db, "..") : join(import.meta.dir, "../../data")
@@ -135,6 +135,197 @@ function handleAllRuns(): Response {
     durationS: r.startedAt && r.finishedAt ? r.finishedAt - r.startedAt : null,
   }))
   return json({ runs })
+}
+
+// ── Registry serving (Phase 8 / v1.0) ─────────────────────────────────────────
+
+/**
+ * Bearer-token gate for the registry endpoints. When NEURON_SERVE_TOKEN is set,
+ * requests need `Authorization: Bearer <token>` to proceed. Returns null on
+ * success; otherwise a 401 Response to return from the handler.
+ */
+function serveAuthGate(req: Request): Response | null {
+  const expected = process.env.NEURON_SERVE_TOKEN
+  if (!expected) return null // unauthenticated by design if no token set
+  const header = req.headers.get("authorization") ?? ""
+  const match = header.match(/^Bearer\s+(.+)$/i)
+  if (!match || match[1] !== expected) {
+    return json({ error: "unauthorized" }, 401)
+  }
+  return null
+}
+
+// Cache of loaded MLPs by uri — avoid re-loading weights from disk every call.
+const loadedBundles = new Set<string>()
+
+async function ensureBundleLoaded(uri: string, name: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+  if (loadedBundles.has(uri)) return { ok: true }
+  const { readBundle } = await import("./core/registry/bundle")
+  const bundle = readBundle(uri)
+  if (!bundle) return { ok: false, reason: `bundle not found: ${uri}` }
+  const { rsTensor } = await import("./core/mcp_client")
+  await rsTensor.restoreMlp(name, bundle.weights, bundle.meta.head_arch)
+  loadedBundles.add(uri)
+  return { ok: true }
+}
+
+async function handleRegistryPredict(name: string, version: string, req: Request): Promise<Response> {
+  const guard = serveAuthGate(req)
+  if (guard) return guard
+
+  const uri = `neuron://local/${name}@${version}`
+  const { readBundle } = await import("./core/registry/bundle")
+  const bundle = readBundle(uri)
+  if (!bundle) return err(`bundle not found: ${uri}`, 404)
+
+  let body: { features?: number[] } = {}
+  try { body = (await req.json()) as typeof body } catch { /* empty ok */ }
+  const features = body.features
+  if (!Array.isArray(features) || features.length === 0) {
+    return err("body requires `features: number[]`")
+  }
+
+  const mlpName = `neuron_served_${name}_${version.replaceAll(".", "_")}`
+  const loaded = await ensureBundleLoaded(uri, mlpName)
+  if (!loaded.ok) return err(loaded.reason, 500)
+
+  const isRegression = bundle.meta.kind === "regression"
+  const labels = bundle.meta.labels ?? []
+  const K = isRegression ? 1 : labels.length
+  const D = bundle.meta.feature_shape[0] ?? features.length
+
+  // Apply normalization from the bundle's run if present.
+  const normScale = bundle.weights["__regression_scale__"]?.data
+  const { applyNorm } = await import("./core/metrics")
+  const normStats = bundle.weights.__norm_stats__ as { data?: number[]; shape?: number[] } | undefined
+  const normed = normStats?.data && normStats.shape?.length === 2
+    ? applyNorm(features, normStats.data.slice(0, normStats.shape[1]!), normStats.data.slice(normStats.shape[1]!))
+    : features
+
+  const t0 = Date.now()
+  const inputName = `${mlpName}_input_${t0}`
+  await rsTensor.createTensor(inputName, normed, [1, D])
+  const evalResult = await rsTensor.evaluateMlp(mlpName, inputName)
+  const raw = evalResult.predictions?.data ?? []
+
+  let output: Record<string, unknown>
+  if (isRegression) {
+    const rawVal = raw[0] ?? 0
+    const value = normScale ? rawVal * (normScale[1] ?? 1) + (normScale[0] ?? 0) : rawVal
+    output = { value, raw_output: rawVal }
+  } else {
+    const logits = raw.slice(0, K)
+    const hp = bundle.meta.hyperparams as { calibration_temperature?: number }
+    const T = hp?.calibration_temperature
+    const scaled = T && T > 0 ? logits.map((v) => v / T) : logits
+    const probs = softmax(scaled)
+    const idx = argmax(probs)
+    const scoreMap: Record<string, number> = {}
+    for (let i = 0; i < labels.length; i++) scoreMap[labels[i]!] = +(probs[i] ?? 0).toFixed(4)
+    output = {
+      label: labels[idx] ?? "unknown",
+      confidence: +(probs[idx] ?? 0).toFixed(4),
+      scores: scoreMap,
+      calibrated: T != null && T > 0,
+    }
+  }
+  const latencyMs = Date.now() - t0
+
+  const { logPrediction } = await import("./core/db/predictions")
+  logPrediction({
+    taskId: bundle.meta.task_id,
+    runId: bundle.meta.run_info?.run_id ?? null,
+    modelUri: uri,
+    features,
+    output,
+    latencyMs,
+  })
+
+  return json({ ...output, model_uri: uri, latency_ms: latencyMs })
+}
+
+async function handleRegistryBatchPredict(name: string, version: string, req: Request): Promise<Response> {
+  const guard = serveAuthGate(req)
+  if (guard) return guard
+
+  const uri = `neuron://local/${name}@${version}`
+  const { readBundle } = await import("./core/registry/bundle")
+  const bundle = readBundle(uri)
+  if (!bundle) return err(`bundle not found: ${uri}`, 404)
+
+  let body: { features?: number[][] } = {}
+  try { body = (await req.json()) as typeof body } catch { /* ok */ }
+  const rows = body.features
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return err("body requires `features: number[][]`")
+  }
+  if (rows.length > 10000) return err("max 10000 rows per batch")
+
+  const mlpName = `neuron_served_${name}_${version.replaceAll(".", "_")}`
+  const loaded = await ensureBundleLoaded(uri, mlpName)
+  if (!loaded.ok) return err(loaded.reason, 500)
+
+  const isRegression = bundle.meta.kind === "regression"
+  const labels = bundle.meta.labels ?? []
+  const K = isRegression ? 1 : labels.length
+  const D = bundle.meta.feature_shape[0] ?? rows[0]!.length
+
+  const normScale = bundle.weights["__regression_scale__"]?.data
+  const { applyNorm } = await import("./core/metrics")
+  const normStats = bundle.weights.__norm_stats__ as { data?: number[]; shape?: number[] } | undefined
+  const normalize = normStats?.data && normStats.shape?.length === 2
+  const flat = rows.flatMap((f) =>
+    normalize
+      ? applyNorm(f, normStats!.data!.slice(0, normStats!.shape![1]!), normStats!.data!.slice(normStats!.shape![1]!))
+      : f,
+  )
+
+  const t0 = Date.now()
+  const inputName = `${mlpName}_batch_${t0}`
+  await rsTensor.createTensor(inputName, flat, [rows.length, D])
+  const evalResult = await rsTensor.evaluateMlp(mlpName, inputName)
+  const raw = evalResult.predictions?.data ?? []
+
+  const hp = bundle.meta.hyperparams as { calibration_temperature?: number }
+  const T = hp?.calibration_temperature
+  const predictions: unknown[] = []
+  for (let i = 0; i < rows.length; i++) {
+    if (isRegression) {
+      const rawVal = raw[i * K] ?? 0
+      const value = normScale ? rawVal * (normScale[1] ?? 1) + (normScale[0] ?? 0) : rawVal
+      predictions.push({ row: i + 1, value: +value.toFixed(6), raw_output: rawVal })
+    } else {
+      const logits = raw.slice(i * K, (i + 1) * K)
+      const scaled = T && T > 0 ? logits.map((v) => v / T) : logits
+      const probs = softmax(scaled)
+      const idx = argmax(probs)
+      predictions.push({
+        row: i + 1,
+        label: labels[idx] ?? "unknown",
+        confidence: +(probs[idx] ?? 0).toFixed(4),
+      })
+    }
+  }
+  const latencyMs = Date.now() - t0
+
+  const { logPrediction } = await import("./core/db/predictions")
+  // Sampled logging — log at most one per batch to keep DB writes bounded.
+  logPrediction({
+    taskId: bundle.meta.task_id,
+    runId: bundle.meta.run_info?.run_id ?? null,
+    modelUri: uri,
+    features: rows[0]!, // representative sample
+    output: { batch_size: rows.length, sample: predictions[0] },
+    latencyMs,
+  })
+
+  return json({
+    model_uri: uri,
+    total: rows.length,
+    predictions,
+    latency_ms: latencyMs,
+    calibrated: T != null && T > 0,
+  })
 }
 
 async function handleRunConfusions(runId: number, url: URL): Promise<Response> {
@@ -708,6 +899,20 @@ async function handleBatchPredict(taskId: string, req: Request): Promise<Respons
   return json(result)
 }
 
+// ── Drift check ────────────────────────────────────────────────────────────────
+
+async function handleDrift(taskId: string, url: URL): Promise<Response> {
+  const { handler: driftFn } = await import("./tools/drift_check")
+  const windowParam = url.searchParams.get("window")
+  const window = windowParam ? Math.max(30, Math.min(10000, parseInt(windowParam))) : 1000
+  try {
+    const result = await driftFn({ task_id: taskId, current_window: window })
+    return json(result)
+  } catch (e) {
+    return err(e instanceof Error ? e.message : String(e))
+  }
+}
+
 // ── Suggest samples ────────────────────────────────────────────────────────────
 
 async function handleSuggestSamples(taskId: string, req: Request): Promise<Response> {
@@ -1002,6 +1207,9 @@ Bun.serve({
     const taskSuggestMatch = path.match(/^\/api\/tasks\/([^/]+)\/suggest_samples$/)
     if (taskSuggestMatch && req.method === "POST") return handleSuggestSamples(decodeURIComponent(taskSuggestMatch[1]!), req)
 
+    const taskDriftMatch = path.match(/^\/api\/tasks\/([^/]+)\/drift$/)
+    if (taskDriftMatch && req.method === "GET") return handleDrift(decodeURIComponent(taskDriftMatch[1]!), url)
+
     const runMatch = path.match(/^\/api\/runs\/(\d+)$/)
     if (runMatch && req.method === "GET")        return handleRun(parseInt(runMatch[1]!))
 
@@ -1010,6 +1218,17 @@ Bun.serve({
 
     const runConfusionsMatch = path.match(/^\/api\/runs\/(\d+)\/confusions$/)
     if (runConfusionsMatch && req.method === "GET") return handleRunConfusions(parseInt(runConfusionsMatch[1]!), url)
+
+    // Phase 8 — bundle-serving endpoints.
+    // name can include letters, digits, dashes, underscores; version is anything after @.
+    const registryPredictMatch = path.match(/^\/api\/registry\/([^@/]+)@([^/]+)\/predict$/)
+    if (registryPredictMatch && req.method === "POST") {
+      return handleRegistryPredict(decodeURIComponent(registryPredictMatch[1]!), decodeURIComponent(registryPredictMatch[2]!), req)
+    }
+    const registryBatchMatch = path.match(/^\/api\/registry\/([^@/]+)@([^/]+)\/batch_predict$/)
+    if (registryBatchMatch && req.method === "POST") {
+      return handleRegistryBatchPredict(decodeURIComponent(registryBatchMatch[1]!), decodeURIComponent(registryBatchMatch[2]!), req)
+    }
 
     if (path.startsWith("/api/")) return err("Not found", 404)
 

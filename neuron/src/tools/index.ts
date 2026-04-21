@@ -40,6 +40,7 @@ import * as cvTrain from "./cv_train"
 import * as calibrate from "./calibrate"
 import * as dataAudit from "./data_audit"
 import * as autoPreflight from "./auto_preflight"
+import * as driftCheck from "./drift_check"
 
 type AnySchema = Record<string, z.ZodTypeAny>
 type ToolModule = {
@@ -59,7 +60,7 @@ const modules: ToolModule[] = [
   runSweep, publishModel, importModel, listRegistry, loadModel,
   autoTrain, getAutoStatus, logAutoNote, suggestSamples,
   inspectData, getTrainingCurves, modelStats, batchPredict,
-  cvTrain, calibrate, dataAudit, autoPreflight,
+  cvTrain, calibrate, dataAudit, autoPreflight, driftCheck,
 ] as ToolModule[]
 
 export function listTools() {

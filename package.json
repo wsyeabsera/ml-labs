@@ -1,6 +1,6 @@
 {
   "name": "ml-labs",
-  "version": "0.14.0",
+  "version": "1.0.0",
   "description": "A Claude-native ML platform — train, sweep, and ship models from your terminal",
   "private": true,
   "workspaces": ["neuron", "site", "cli", "dashboard"],
