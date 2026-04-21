@@ -1,12 +1,12 @@
 {
-  "generated_at": "2026-04-21T10:14:29.450Z",
+  "generated_at": "2026-04-21T10:39:20.044Z",
   "neuron_version": "0.8.0",
   "entries": {
     "iris": {
       "metric_name": "accuracy",
-      "metric_value": 0.8,
-      "waves_used": 2,
-      "configs_tried": 5,
+      "metric_value": 1,
+      "waves_used": 1,
+      "configs_tried": 3,
       "wall_clock_s": 1,
       "dataset_hash": "733f37fd73fa68a0fcda1ae3e982e19bf1fd4b1a415b481add2df97ae12831f3"
     },
@@ -20,19 +20,27 @@
     },
     "breast-cancer": {
       "metric_name": "accuracy",
-      "metric_value": 0.9469026548672567,
+      "metric_value": 0.9646017699115044,
       "waves_used": 1,
       "configs_tried": 3,
-      "wall_clock_s": 1,
+      "wall_clock_s": 2,
       "dataset_hash": "6347fe773609ce832bbdbbefbe2757a4a1e25b4ff1f531e3f18e9fb277511beb"
     },
     "housing": {
       "metric_name": "r2",
-      "metric_value": 0.8895308290548566,
+      "metric_value": 0.970284308141131,
       "waves_used": 1,
       "configs_tried": 3,
       "wall_clock_s": 1,
       "dataset_hash": "67f30efa172bc261796c2be3f514233b749119d927c91b7ae34482fc5ed6d9a8"
+    },
+    "digits": {
+      "metric_name": "accuracy",
+      "metric_value": 0.9895150720838795,
+      "waves_used": 1,
+      "configs_tried": 3,
+      "wall_clock_s": 38,
+      "dataset_hash": "d9a4ebfbcc7df3584c2fef285d1c43e2fe98ebd47565b3d8d72ee3c1e66b2a91"
     }
   }
 }

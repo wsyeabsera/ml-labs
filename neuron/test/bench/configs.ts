@@ -41,6 +41,16 @@ export const BENCHES: Record<string, BenchConfig> = {
     max_waves: 2,
     test_size: 0.2,
   },
+  digits: {
+    name: "digits",
+    csv: "digits.csv",
+    kind: "classification",
+    label_column: "label",
+    budget_s: 120,
+    accuracy_target: 0.85,
+    max_waves: 2,
+    test_size: 0.2,
+  },
 }
 
 export const FAST_SUBSET = ["iris", "wine"]

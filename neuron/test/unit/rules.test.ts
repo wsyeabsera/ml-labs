@@ -12,16 +12,27 @@ import {
 } from "./fixtures/bundle-fixtures"
 
 describe("refineFromSignals — seed wave (empty current_wave)", () => {
-  test("produces 3 lr-variant configs for a balanced dataset", () => {
+  test("produces 3 configs: 2 SGD+tanh variants + 1 modern AdamW+ReLU for balanced classification", () => {
     const plan = refineFromSignals(bundleEmpty())
     expect(plan.configs.length).toBe(3)
     expect(plan.rules_fired).toContain("seed")
+    expect(plan.rules_fired).toContain("seed_modern")
     for (const c of plan.configs) {
       expect(c.lr).toBeGreaterThanOrEqual(0.001)
       expect(c.lr).toBeLessThanOrEqual(0.1)
       expect(c.epochs).toBeGreaterThan(0)
       expect(c.head_arch?.length).toBeGreaterThanOrEqual(3)
     }
+  })
+
+  test("modern variant uses AdamW + ReLU + cosine + CE for classification", () => {
+    const plan = refineFromSignals(bundleEmpty())
+    const modern = plan.configs.find((c) => c.optimizer === "adamw")
+    expect(modern).toBeDefined()
+    expect(modern!.activation).toBe("relu")
+    expect(modern!.lr_schedule).toBe("cosine")
+    expect(modern!.loss).toBe("cross_entropy")
+    expect(modern!.weight_decay).toBeGreaterThan(0)
   })
 
   test("adds class_weights=balanced variant when imbalance > 3", () => {

@@ -42,7 +42,9 @@ export function refineFromSignals(bundle: SignalBundle): RefinementPlan {
   const wave = bundle.current_wave
   const isRegression = bundle.task_kind === "regression"
 
-  // No prior wave → seed from data health defaults
+  // No prior wave → seed wave. Mix of legacy SGD+tanh and modern AdamW+ReLU+CE
+  // so the controller has a fair comparison between proven-safe and
+  // best-practice-2024+ starting points. Classification gets CE + cosine; regression gets AdamW + MSE.
   if (wave.length === 0) {
     const d = bundle.data.d
     const k = bundle.data.k
@@ -51,17 +53,33 @@ export function refineFromSignals(bundle: SignalBundle): RefinementPlan {
     const epochs = n < 50 ? 1000 : n < 200 ? 600 : 400
     const arch = [d, Math.max(d, 32), k]
     const configs: SweepConfig[] = [
+      // Legacy SGD+tanh baseline at half, 1×, and 2× the heuristic LR
       { lr: clampLr(lr * 0.5), epochs, head_arch: arch },
       { lr: clampLr(lr),       epochs, head_arch: arch },
-      { lr: clampLr(lr * 2),   epochs, head_arch: arch },
     ]
+    // Modern variant: AdamW + ReLU + cosine + CE (classification) / MSE (regression).
+    // Mini-batch kicks in once N ≥ 50 — below that, full-batch is simpler and faster.
+    const modernBatch = n >= 50 ? Math.max(8, Math.min(64, Math.floor(n / 8))) : undefined
+    const modern: SweepConfig = {
+      lr: clampLr(0.01),
+      epochs,
+      head_arch: arch,
+      optimizer: "adamw",
+      activation: "relu",
+      lr_schedule: "cosine",
+      weight_decay: 0.01,
+      ...(modernBatch !== undefined ? { batch_size: modernBatch } : {}),
+      ...(!isRegression ? { loss: "cross_entropy" } : {}),
+    }
+    configs.push(modern)
+
     if (!isRegression && bundle.data.imbalance_ratio != null && bundle.data.imbalance_ratio > 3) {
       configs.push({ lr: clampLr(lr), epochs, head_arch: arch, class_weights: "balanced" })
     }
     return {
       configs,
-      rationale: `seed wave: lr × [0.5, 1, 2] around heuristic ${lr} for N=${n}${configs.length > 3 ? ", + class_weights=balanced" : ""}`,
-      rules_fired: ["seed"],
+      rationale: `seed wave: 2 SGD+tanh variants + 1 AdamW+ReLU${isRegression ? "+MSE" : "+CE"} modern${configs.length > 3 ? " + class_weights=balanced" : ""}`,
+      rules_fired: ["seed", "seed_modern"],
     }
   }
 
