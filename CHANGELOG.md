@@ -4,6 +4,60 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v1.7.0 — 2026-04-21
+
+**Fixes the "auto_train crashed my PC" bug.** User loaded a large CSV (v1.6.3 fix worked), then ran `auto_train` and the machine hung. Same class of resource issue as v1.6.3, different layer — this time in the sweep execution path.
+
+### The bug
+
+Production `auto_train` defaulted to `runSweep(concurrency: 3)`, which spawns **3 concurrent full Claude Agent SDK sessions** per wave. Each sub-agent spawns its **own neuron MCP server child process** (`bun run src/server.ts`, ~200MB RSS each), which spawns its **own rs-tensor child process**. Per wave that's:
+
+- Parent: neuron + rs-tensor (~250MB)
+- 3 sub-agents × (Claude session + neuron bun + rs-tensor) ≈ **700-900MB of process overhead**
+- Plus each sub-process independently loads all samples from SQLite to build its own training tensors
+
+On a laptop with a 130MB dataset already resident, this was easily the difference between "swap-pressured" and "hard crash."
+
+### Worse: the Claude sub-agents weren't doing anything intelligent
+
+Each sub-agent's job was literally "call `mcp__neuron__train` with these exact hyperparams from the config." No reasoning. No decision-making. Just middleware. And because rs-tensor serializes all operations through a single connection, the "3 concurrent trainings" didn't even truly parallelize — they just created memory pressure and IPC overhead for no throughput gain. (This was flagged in the v1.6.0 gap analysis as "Gap 12 — architectural oddity, defer." It's now the user-crashing bug.)
+
+### Fix: default sweep mode is now in-process sequential
+
+- **Default**: `runSweepSequential` — calls `startTrainBackground` directly in the main process, one config at a time. Zero extra processes. No Claude API calls per training. Memory bounded to the parent process.
+- **Opt-in legacy path**: set `NEURON_SWEEP_MODE=sub_agents` to restore the old concurrent-sub-agent behavior. Kept available because someone might want the process isolation for sandboxing reasons — but nobody should *need* it for speed.
+- Env var semantics inverted: previously `NEURON_SWEEP_MODE=sequential` meant in-process, anything else meant sub-agents. Now anything **other than** `sub_agents` means in-process (so existing callers setting `=sequential` continue to work without change).
+
+### Observability
+
+New decision-log entry `sweep_wave_N_exec` fires at wave start with `{mode: "in_process" | "sub_agents", configs}` — you can see which path auto_train is using on the `/auto/:id` timeline.
+
+### Performance
+
+- **Wall-clock**: roughly the same or *faster* on CPU-only tabular workloads. rs-tensor serializes anyway; the old "parallelism" was adding IPC cost without throughput. For a 4-config wave, expect ~20-30% lower wall-clock from eliminating the Claude round-trips.
+- **Memory**: dropped from ~1GB peak to ~300MB peak during a sweep wave on the Pima-sized datasets used for testing.
+- **Bench Δ=+0.000** on all 5 datasets — the benchmark harness already set `NEURON_SWEEP_MODE=sequential`, which now falls through to the new default path.
+
+### Unchanged
+
+- Tournament mode (3 concurrent Claude *planners*, not workers) still spawns sub-agents — that's real parallelism on a genuinely intelligence-heavy task. Out of scope for this fix.
+- `auto_train` behavior, MCP surface, and decision-log shape are all unchanged.
+
+### Upgrade
+
+```bash
+ml-labs update
+ml-labs --version   # prints 1.7.0
+```
+
+If you specifically want the old sub-agent behavior:
+```bash
+NEURON_SWEEP_MODE=sub_agents ml-labs dashboard
+# or set in your .mcp.json env block
+```
+
+---
+
 ## v1.6.3 — 2026-04-21
 
 **`load_csv` was PC-crash dangerous on large files.** A user tried loading a 130MB CSV and their machine hung. Three compounding issues:

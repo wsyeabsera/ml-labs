@@ -256,12 +256,19 @@ async function runControllerBody(
       },
     })
 
-    // Run sweep — sequential for benchmarks/CI (no Claude sub-agents),
-    // parallel via existing sub-agent infra otherwise.
+    // Run sweep. Default (v1.7.0+) is in-process sequential — no Claude
+    // sub-agents, no extra bun/rs-tensor child processes. Opt into the
+    // Claude-sub-agent path with NEURON_SWEEP_MODE=sub_agents if you
+    // specifically want it (costs ~300MB per concurrent config and doesn't
+    // actually parallelize training — rs-tensor serializes ops regardless).
     const waveT0 = Date.now()
-    const results = process.env.NEURON_SWEEP_MODE === "sequential"
-      ? await runSweepSequential(args.task_id, plan.configs, ac.signal)
-      : await runSweep(args.task_id, plan.configs, 3, ac.signal)
+    const sweepMode = process.env.NEURON_SWEEP_MODE === "sub_agents" ? "sub_agents" : "in_process"
+    log(args.auto_run_id, `sweep_wave_${wavesDone + 1}_exec`,
+      `starting ${plan.configs.length} configs (mode=${sweepMode})`,
+      { mode: sweepMode, configs: plan.configs.length })
+    const results = sweepMode === "sub_agents"
+      ? await runSweep(args.task_id, plan.configs, 3, ac.signal)
+      : await runSweepSequential(args.task_id, plan.configs, ac.signal)
     waveDurationsS.push(Math.round((Date.now() - waveT0) / 1000))
     const completedRunIds = results.filter((r) => r.status === "completed" && r.run_id != null).map((r) => r.run_id!)
     const failedCount = results.filter((r) => r.status === "failed").length
@@ -455,9 +462,9 @@ async function runControllerBody(
         })
         const extraPlan = refineFromSignals(bundle)
         recordRulesFired(extraPlan.rules_fired, fingerprint)
-        const extraResults = process.env.NEURON_SWEEP_MODE === "sequential"
-          ? await runSweepSequential(args.task_id, extraPlan.configs, ac.signal)
-          : await runSweep(args.task_id, extraPlan.configs, 3, ac.signal)
+        const extraResults = process.env.NEURON_SWEEP_MODE === "sub_agents"
+          ? await runSweep(args.task_id, extraPlan.configs, 3, ac.signal)
+          : await runSweepSequential(args.task_id, extraPlan.configs, ac.signal)
         const extraCompletedIds = extraResults
           .filter((r) => r.status === "completed" && r.run_id != null)
           .map((r) => r.run_id!)
