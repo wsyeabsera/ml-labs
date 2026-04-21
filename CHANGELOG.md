@@ -4,6 +4,41 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v0.14.0 — 2026-04-21
+
+### Added — Phase 7.5 (dashboard UX pass)
+
+The dashboard catches up to the backend's intelligence. Three focused UX upgrades shipping in one phase.
+
+- **Multi-run comparison** (`CompareRuns.tsx`): the route now accepts `?runs=1,2,3,4,5,6` — up to **6 runs** overlaid at once. Loss curves share one chart with distinct colors per run; per-class accuracy bars stack; metrics table auto-generates columns. Winner is marked with a ★. Backward compatible with the legacy `?a=X&b=Y` query.
+- **Compare checkboxes on Runs** (`RunsAll.tsx`): per-row checkbox, floating "Compare (N)" button appears when ≥ 2 selected. Cap at 6. Clicking compare navigates to `/tasks/:id/compare?runs=…`. Same-task constraint enforced (cross-task selections show an alert).
+- **Confusion matrix drill-through** (`RunDetail.tsx` + new API endpoint): every non-zero cell in the confusion matrix is now clickable. Opens a right-side drawer showing the samples where `true=X AND predicted=Y`, sorted by model confidence, with per-class probability breakdown. Uses a new endpoint `GET /api/runs/:id/confusions?true=X&pred=Y` that re-predicts on the fly (respecting calibration temperature from Phase 4) and returns feature vectors + scores.
+
+### New API endpoint
+
+- `GET /api/runs/:id/confusions?true=<label>&pred=<label>` — returns matching samples with features, confidence, and per-class scores.
+
+### Build
+
+- Dashboard still builds cleanly (recharts already was a dep; no new packages).
+
+### Deferred (to a future dashboard polish phase)
+
+- Labeling UI (active-learning visual loop)
+- HP-importance chart on sweep results
+- Run tags + notes + search
+- Training-curves overlay smoothing slider (compare already shows curves; smoothing is a polish pass)
+
+### Upgrade
+
+```bash
+ml-labs update
+```
+
+TS/TSX-only. No rs-tensor rebuild. `ml-labs dashboard` will rebuild the dashboard `dist/` on next launch thanks to the update-cache-clear logic from v0.4.x.
+
+---
+
 ## v0.13.0 — 2026-04-21
 
 ### Added — Phase 7A (active-learning backend)

@@ -161,6 +161,21 @@ export interface ApiInspect {
   warnings?: string[]
 }
 
+export interface ApiConfusionDrill {
+  ok: boolean
+  run_id: number
+  task_id: string
+  true_label: string
+  predicted_label: string
+  labels: string[]
+  samples: Array<{
+    sample_id: number
+    confidence: number
+    features: number[]
+    scores: number[]
+  }>
+}
+
 export interface ApiSuggestSamples {
   ok: boolean
   task_id: string
@@ -265,6 +280,17 @@ export const api = {
       if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`)
       return data as { ok: true; id: number }
     }),
+
+  runConfusions: (runId: number, trueLabel: string, predLabel: string) => {
+    const url = new URL(`${window.location.origin}${BASE}/runs/${runId}/confusions`)
+    url.searchParams.set("true", trueLabel)
+    url.searchParams.set("pred", predLabel)
+    return fetch(url.toString()).then(async (res) => {
+      const data = await res.json() as ApiConfusionDrill & { error?: string }
+      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`)
+      return data
+    })
+  },
 
   suggestSamples: (taskId: string, opts?: { n_suggestions?: number; confidence_threshold?: number }) =>
     fetch(`${BASE}/tasks/${encodeURIComponent(taskId)}/suggest_samples`, {

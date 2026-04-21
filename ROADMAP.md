@@ -566,11 +566,20 @@ Our 5-dataset bench hits the target in wave 1 thanks to the Phase 3 modern seed 
 
 ## Phase 7.5 (new) — Dashboard UX pass
 
-**Goal**: The dashboard catches up to the backend's intelligence. Spun out from Phase 7.
+**Status**: 🟡 **Partial — shipped as v0.14.0 on 2026-04-21.** Three of five items done; labeling UI / HP importance / tags deferred to a later polish phase.
 
-**Scope**: training-curves overlay (compare up to 6 runs), confusion matrix drill-through, HP-importance chart, labeling UI (closes the active-learning loop visually), run tags/notes/search.
+**What shipped**:
+- **Multi-run compare** (up to 6 runs, `?runs=1,2,3,...` URL param). Loss curves overlay with distinct colors; metrics table auto-generates columns; winner marked ★.
+- **Compare checkboxes** on RunsAll with floating "Compare (N)" button, capped at 6, same-task constraint.
+- **Confusion matrix drill-through** on RunDetail: non-zero cells open a drawer listing the matching samples with confidence + per-class scores. New API endpoint `GET /api/runs/:id/confusions?true=X&pred=Y` that re-predicts on the fly (respects Phase 4 calibration temperature).
 
-**Not yet planned** — will be a separate phase file when we pick it up.
+**Deferred to a future polish phase**:
+- Labeling UI (active-learning visual loop)
+- HP-importance chart on Sweep
+- Run tags / notes / search
+- Smoothing slider on compare chart (UX nice-to-have)
+
+**Time**: ~1.5 hours.
 
 ---
 

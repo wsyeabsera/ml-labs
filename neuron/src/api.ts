@@ -25,7 +25,7 @@ import { db } from "./core/db/schema"
 
 const PORT = parseInt(process.env.NEURON_API_PORT ?? "2626")
 const DIST = process.env.DASHBOARD_DIST ?? join(import.meta.dir, "../../dashboard/dist")
-const VERSION = "0.13.0"
+const VERSION = "0.14.0"
 const DB_DIR = (() => {
   const db = process.env.NEURON_DB
   return db ? join(db, "..") : join(import.meta.dir, "../../data")
@@ -135,6 +135,85 @@ function handleAllRuns(): Response {
     durationS: r.startedAt && r.finishedAt ? r.finishedAt - r.startedAt : null,
   }))
   return json({ runs })
+}
+
+async function handleRunConfusions(runId: number, url: URL): Promise<Response> {
+  const run = getRun(runId)
+  if (!run) return err(`Run ${runId} not found`, 404)
+  const trueLabel = url.searchParams.get("true")
+  const predLabel = url.searchParams.get("pred")
+  if (!trueLabel || !predLabel) return err("Query params required: true, pred")
+
+  const task = getTask(run.taskId)
+  if (!task) return err(`Task "${run.taskId}" not found`, 404)
+  if (task.kind === "regression") {
+    return json({ ok: false, reason: "confusion drill-through is classification-only" })
+  }
+
+  const labels = task.labels ?? []
+  const labelToIdx = new Map(labels.map((l, i) => [l, i]))
+  const trueIdx = labelToIdx.get(trueLabel)
+  const predIdx = labelToIdx.get(predLabel)
+  if (trueIdx === undefined || predIdx === undefined) {
+    return err(`Unknown label: ${trueIdx === undefined ? trueLabel : predLabel}`)
+  }
+
+  // Pull all samples for this task where the model's prediction matches predLabel
+  // AND the true label is trueLabel. We re-predict using the registered model's
+  // raw logits so we also report confidence alongside.
+  const { getSamplesByTask } = await import("./core/db/samples")
+  const samples = getSamplesByTask(run.taskId)
+  const candidates = samples.filter((s) => s.label === trueLabel)
+  if (candidates.length === 0) return json({ ok: true, samples: [] })
+
+  const K = labels.length
+  const D = task.featureShape[0] ?? candidates[0]!.features.length
+
+  const flat = candidates.flatMap((s) =>
+    run.normStats
+      ? applyNorm(s.features, run.normStats.mean, run.normStats.std)
+      : s.features,
+  )
+  const inputName = `neuron_confusions_${runId}_${Date.now()}`
+  await rsTensor.createTensor(inputName, flat, [candidates.length, D])
+
+  const mlpName = `neuron_run_${run.id}_mlp`
+  let evalResult: { predictions?: { data: number[]; shape: number[] } }
+  try {
+    evalResult = await rsTensor.evaluateMlp(mlpName, inputName)
+  } catch {
+    if (!run.weights) return err("Model not in memory and no stored weights")
+    const headArch = (run.hyperparams as { headArch?: number[] }).headArch
+    await rsTensor.restoreMlp(mlpName, run.weights, headArch)
+    evalResult = await rsTensor.evaluateMlp(mlpName, inputName)
+  }
+
+  const raw = evalResult.predictions?.data ?? []
+  const T = run.calibrationTemperature
+  const result: Array<{ sample_id: number; confidence: number; features: number[]; scores: number[] }> = []
+  for (let i = 0; i < candidates.length; i++) {
+    const logits = raw.slice(i * K, (i + 1) * K)
+    const scaled = T !== null && T !== undefined && T > 0 ? logits.map((v) => v / T) : logits
+    const probs = softmax(scaled)
+    const pred = argmax(probs)
+    if (pred !== predIdx) continue
+    result.push({
+      sample_id: candidates[i]!.id,
+      confidence: +(probs[pred] ?? 0).toFixed(4),
+      features: candidates[i]!.features,
+      scores: probs.map((p) => +p.toFixed(4)),
+    })
+  }
+  result.sort((a, b) => b.confidence - a.confidence)
+  return json({
+    ok: true,
+    run_id: runId,
+    task_id: run.taskId,
+    true_label: trueLabel,
+    predicted_label: predLabel,
+    samples: result,
+    labels,
+  })
 }
 
 function handleRun(id: number): Response {
@@ -928,6 +1007,9 @@ Bun.serve({
 
     const runEventsMatch = path.match(/^\/api\/runs\/(\d+)\/events$/)
     if (runEventsMatch && req.method === "GET")  return handleRunEvents(parseInt(runEventsMatch[1]!))
+
+    const runConfusionsMatch = path.match(/^\/api\/runs\/(\d+)\/confusions$/)
+    if (runConfusionsMatch && req.method === "GET") return handleRunConfusions(parseInt(runConfusionsMatch[1]!), url)
 
     if (path.startsWith("/api/")) return err("Not found", 404)
 

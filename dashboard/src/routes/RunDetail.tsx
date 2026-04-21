@@ -1,8 +1,8 @@
 import { useParams, Link } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
 import { useEffect, useState } from "react"
-import { motion } from "framer-motion"
-import { ArrowLeft } from "lucide-react"
+import { motion, AnimatePresence } from "framer-motion"
+import { ArrowLeft, X } from "lucide-react"
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts"
@@ -62,7 +62,13 @@ function LossCurve({ history }: { history: number[] }) {
 
 // ── Confusion matrix ───────────────────────────────────────────────────────────
 
-function ConfusionMatrix({ matrix, labels }: { matrix: number[][]; labels: string[] }) {
+function ConfusionMatrix({
+  matrix, labels, onCellClick,
+}: {
+  matrix: number[][]
+  labels: string[]
+  onCellClick?: (trueLabel: string, predLabel: string, count: number) => void
+}) {
   const n = matrix.length
   const rowMaxes = matrix.map((row) => Math.max(...row, 1))
 
@@ -81,15 +87,20 @@ function ConfusionMatrix({ matrix, labels }: { matrix: number[][]; labels: strin
             {row.map((val, j) => {
               const intensity = val / rowMaxes[i]!
               const isDiag = i === j
+              const clickable = onCellClick != null && val > 0
               return (
-                <motion.div
+                <motion.button
                   key={j}
+                  type="button"
+                  disabled={!clickable}
+                  onClick={() => clickable && onCellClick!(labels[i] ?? `C${i}`, labels[j] ?? `C${j}`, val)}
                   initial={{ opacity: 0, scale: 0.8 }}
                   animate={{ opacity: 1, scale: 1 }}
                   transition={{ delay: (i * n + j) * 0.02 }}
                   className={clsx(
                     "w-12 h-10 flex items-center justify-center text-xs font-mono rounded-sm",
-                    isDiag ? "font-semibold" : "font-normal"
+                    isDiag ? "font-semibold" : "font-normal",
+                    clickable ? "cursor-pointer hover:ring-2 hover:ring-[var(--accent-border)] transition-all" : "cursor-default",
                   )}
                   style={{
                     background: isDiag
@@ -101,14 +112,114 @@ function ConfusionMatrix({ matrix, labels }: { matrix: number[][]; labels: strin
                   }}
                 >
                   {val}
-                </motion.div>
+                </motion.button>
               )
             })}
           </div>
         ))}
-        <p className="text-2xs text-[var(--text-3)] mt-2 pl-16">← actual / predicted →</p>
+        <p className="text-2xs text-[var(--text-3)] mt-2 pl-16">
+          ← actual / predicted →  {onCellClick ? "(click a non-zero cell to see samples)" : ""}
+        </p>
       </div>
     </div>
+  )
+}
+
+// ── Confusion drill-through drawer ───────────────────────────────────────────
+
+function ConfusionDrawer({
+  runId, trueLabel, predLabel, onClose,
+}: {
+  runId: number
+  trueLabel: string
+  predLabel: string
+  onClose: () => void
+}) {
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["confusions", runId, trueLabel, predLabel],
+    queryFn: () => api.runConfusions(runId, trueLabel, predLabel),
+  })
+
+  const isMismatch = trueLabel !== predLabel
+
+  return (
+    <motion.div
+      initial={{ x: "100%" }}
+      animate={{ x: 0 }}
+      exit={{ x: "100%" }}
+      transition={{ type: "tween", duration: 0.2 }}
+      className="fixed top-0 right-0 bottom-0 w-full max-w-xl z-50 bg-[var(--surface-1)] border-l border-[var(--border)] shadow-2xl overflow-y-auto"
+    >
+      <div className="sticky top-0 bg-[var(--surface-1)] border-b border-[var(--border)] px-5 py-3 flex items-center justify-between">
+        <div>
+          <p className="text-xs text-[var(--text-3)]">Samples where</p>
+          <p className="text-sm font-mono">
+            <span className="text-[var(--text-1)]">true=</span>
+            <span className="text-[var(--accent-text)]">{trueLabel}</span>
+            <span className="text-[var(--text-3)]"> → </span>
+            <span className="text-[var(--text-1)]">predicted=</span>
+            <span className={isMismatch ? "text-[var(--danger)]" : "text-[var(--success)]"}>{predLabel}</span>
+          </p>
+        </div>
+        <button
+          onClick={onClose}
+          className="text-[var(--text-3)] hover:text-[var(--text-1)] transition-colors p-1"
+          aria-label="Close"
+        >
+          <X size={16} />
+        </button>
+      </div>
+
+      <div className="p-5">
+        {isLoading && <p className="text-sm text-[var(--text-3)]">Loading matching samples…</p>}
+        {error && <p className="text-sm text-[var(--danger)]">{(error as Error).message}</p>}
+        {data && (
+          <>
+            <p className="text-xs text-[var(--text-2)] mb-3">
+              {data.samples.length} sample{data.samples.length !== 1 ? "s" : ""} — sorted by model confidence
+            </p>
+            {data.samples.length === 0 && (
+              <p className="text-sm text-[var(--text-3)]">No samples match this combination.</p>
+            )}
+            <div className="space-y-2">
+              {data.samples.map((s) => (
+                <div key={s.sample_id} className="card p-3 text-xs">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="font-mono text-[var(--text-2)]">sample #{s.sample_id}</span>
+                    <span className={clsx(
+                      "stat-num",
+                      s.confidence >= 0.9 ? "text-[var(--danger)]" :
+                      s.confidence >= 0.7 ? "text-[var(--warning)]" :
+                      "text-[var(--text-3)]"
+                    )}>
+                      conf {(s.confidence * 100).toFixed(1)}%
+                    </span>
+                  </div>
+                  <p className="text-2xs text-[var(--text-3)] font-mono truncate">
+                    features: [{s.features.slice(0, 8).map((f) => f.toFixed(2)).join(", ")}{s.features.length > 8 ? ", …" : ""}]
+                  </p>
+                  {/* Top-3 scores */}
+                  <div className="mt-1.5 flex items-center gap-2 text-2xs font-mono">
+                    {data.labels.slice(0, 5).map((l, i) => {
+                      const p = s.scores[i] ?? 0
+                      if (p < 0.05) return null
+                      return (
+                        <span
+                          key={l}
+                          className={l === trueLabel ? "text-[var(--success)]" : l === predLabel ? "text-[var(--danger)]" : "text-[var(--text-3)]"}
+                        >
+                          {l}={(p * 100).toFixed(0)}%
+                        </span>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    </motion.div>
   )
 }
 
@@ -162,6 +273,7 @@ export function RunDetail() {
   const [elapsed, setElapsed] = useState(0)
   const [liveStage, setLiveStage] = useState<string | null>(null)
   const [liveMessage, setLiveMessage] = useState<string | null>(null)
+  const [drill, setDrill] = useState<{ trueLabel: string; predLabel: string } | null>(null)
 
   // Live elapsed clock
   useEffect(() => {
@@ -301,7 +413,11 @@ export function RunDetail() {
           {hasMatrix && (
             <div className="card p-4">
               <p className="text-xs font-medium text-[var(--text-2)] mb-4">Confusion Matrix</p>
-              <ConfusionMatrix matrix={run.confusionMatrix!} labels={classLabels} />
+              <ConfusionMatrix
+                matrix={run.confusionMatrix!}
+                labels={classLabels}
+                onCellClick={(trueLabel, predLabel) => setDrill({ trueLabel, predLabel })}
+              />
             </div>
           )}
         </div>
@@ -327,6 +443,18 @@ export function RunDetail() {
           ))}
         </div>
       </div>
+
+      {/* Confusion drill-through drawer */}
+      <AnimatePresence>
+        {drill && (
+          <ConfusionDrawer
+            runId={runIdNum}
+            trueLabel={drill.trueLabel}
+            predLabel={drill.predLabel}
+            onClose={() => setDrill(null)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   )
 }
