@@ -32,9 +32,16 @@ export function hashFile(path: string): string {
   }
 }
 
-export function writeBundle(uri: string, bundle: Bundle): { dir: string; bytes: number } {
-  const slug = uriToSlug(uri)
-  const dir = bundleDir(slug)
+/**
+ * Write a bundle to an arbitrary directory. Canonical on-disk layout:
+ *   <dir>/meta.json
+ *   <dir>/weights.json
+ *   <dir>/adapter.hash   (optional)
+ * Used by the registry via writeBundle(uri) and by export_model via a caller-
+ * supplied path. Same format both ways — keeps publish_model and export_model
+ * interchangeable (v1.6.2 interop fix).
+ */
+export function writeBundleDir(dir: string, bundle: Bundle): { dir: string; bytes: number } {
   mkdirSync(dir, { recursive: true })
 
   const metaPath = join(dir, "meta.json")
@@ -50,9 +57,8 @@ export function writeBundle(uri: string, bundle: Bundle): { dir: string; bytes: 
   return { dir, bytes: metaBytes + weightsBytes }
 }
 
-export function readBundle(uri: string): Bundle | null {
-  const slug = uriToSlug(uri)
-  const dir = bundleDir(slug)
+/** Read a bundle from an arbitrary directory. Counterpart to writeBundleDir. */
+export function readBundleDir(dir: string): Bundle | null {
   const metaPath = join(dir, "meta.json")
   const weightsPath = join(dir, "weights.json")
 
@@ -65,6 +71,16 @@ export function readBundle(uri: string): Bundle | null {
   } catch {
     return null
   }
+}
+
+export function writeBundle(uri: string, bundle: Bundle): { dir: string; bytes: number } {
+  const slug = uriToSlug(uri)
+  return writeBundleDir(bundleDir(slug), bundle)
+}
+
+export function readBundle(uri: string): Bundle | null {
+  const slug = uriToSlug(uri)
+  return readBundleDir(bundleDir(slug))
 }
 
 export async function packBundleTar(uri: string): Promise<string> {

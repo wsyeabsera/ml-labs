@@ -4,6 +4,53 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v1.6.2 — 2026-04-21
+
+**Fixes a real interop gap: `publish_model` and `export_model` used incompatible artifact formats.** `publish_model` writes a bundle directory (`meta.json` + `weights.json` + `adapter.hash`); `export_model` returned an inline unified JSON with everything merged. The two didn't round-trip — a published model couldn't be loaded from an `export_model` JSON, and vice versa. Reported after observing the inconsistency in a real workflow.
+
+### Fixed
+
+- **`export_model` now supports both formats.**
+  - `export_model({task_id})` — unchanged inline unified JSON (back-compat; good for chat hand-off, commits).
+  - `export_model({task_id, bundle_path: "/path/to/out"})` — writes the **same bundle format** `publish_model` produces to any filesystem path (no registry registration). Returns `{ok, format: "bundle", bundle_path, bytes, accuracy, val_accuracy, adapter_hash, run_id}`.
+
+- **`import_model` now accepts filesystem bundles.** Previously only accepted registry URIs.
+  - `import_model({uri})` — unchanged registry path.
+  - `import_model({bundle_path: "/path/to/bundle"})` — reads a bundle directory directly. Round-trips with `export_model({bundle_path})`.
+  - Must provide exactly one of `uri` / `bundle_path`.
+
+- **New helpers in `core/registry/bundle.ts`**: `writeBundleDir(dir, bundle)` and `readBundleDir(dir)` — the path-based primitives. `writeBundle(uri)` / `readBundle(uri)` are now thin wrappers over them. Same on-disk layout whether the bundle lives in `~/.neuron/registry/` or anywhere else.
+
+### Now round-trippable
+
+```
+# Publish → filesystem → re-import (any of these combinations work):
+publish_model({run_id, name, version})        → bundle in registry
+export_model({task_id, bundle_path: "/tmp/m"}) → bundle at /tmp/m
+import_model({uri: "neuron://local/..."})     ← from registry
+import_model({bundle_path: "/tmp/m"})         ← from filesystem
+```
+
+### Non-changes
+
+- No schema migration. No rs-tensor rebuild. Bench Δ=+0.000.
+- `publish_model` behavior unchanged.
+- `export_model()` without `bundle_path` behavior unchanged — same inline JSON response.
+
+### Verification
+
+- Typecheck clean, bench Δ=+0.000.
+- Round-trip smoke test: `writeBundleDir → readBundleDir` produces byte-identical meta + weights.
+
+### Upgrade
+
+```bash
+ml-labs update
+ml-labs --version   # prints 1.6.2
+```
+
+---
+
 ## v1.6.1 — 2026-04-21
 
 **5 confirmed bug fixes.** A user running a real project (Pima diabetes) surfaced a batch of issues, then prompted a source audit. Every bug below was verifiable in the code; all fixes are small and scoped.
