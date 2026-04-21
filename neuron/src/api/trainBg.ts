@@ -1,5 +1,5 @@
 import { getTask, updateTaskLabels } from "../core/db/tasks"
-import { getSamplesByTask, getSamplesByTaskAndSplit } from "../core/db/samples"
+import { getSamplesByTask, getSamplesByTaskAndSplit, countSamplesByTaskAndSplit, streamSamplesByTaskAndSplit } from "../core/db/samples"
 import {
   createRun, updateRunStatus, finalizeRun,
   updateRunProgress, clearRunProgressDb,
@@ -56,10 +56,15 @@ export async function startTrainBackground(args: StartTrainArgs): Promise<{ runI
 
   const config = await loadConfig()
 
-  const allSamples = getSamplesByTask(args.taskId)
-  const hasSplit = allSamples.some((s) => s.split === "test")
-  const trainSamples = hasSplit ? getSamplesByTaskAndSplit(args.taskId, "train") : allSamples
-  const testSamples = hasSplit ? getSamplesByTaskAndSplit(args.taskId, "test") : []
+  // v1.7.1: avoid materializing every sample twice. Cheap count queries first;
+  // only fetch the rows we actually hand to the trainer.
+  const testCount = countSamplesByTaskAndSplit(args.taskId, "test")
+  const hasSplit = testCount > 0
+  const trainSamples = hasSplit
+    ? getSamplesByTaskAndSplit(args.taskId, "train")
+    : getSamplesByTask(args.taskId)
+  // testSamples is only needed for the post-training val eval. Defer reading it
+  // until then so it doesn't inflate peak memory during the training call.
 
   if (trainSamples.length === 0) throw new Error("No training samples — load data with load_csv first")
 
@@ -164,26 +169,37 @@ export async function startTrainBackground(args: StartTrainArgs): Promise<{ runI
       // so downstream tools (cv_train, winner selection, overfit detection)
       // have a real generalization signal.
       let valAccuracy: number | undefined
-      if (testSamples.length > 0 && !isRegression) {
+      if (testCount > 0 && !isRegression) {
         try {
           const mlpName = `neuron_run_${run.id}_mlp`
-          const testFeaturesRaw = testSamples.map((s) => s.features)
-          const testFeatures = result.normStats
-            ? testFeaturesRaw.map((f) => applyNorm(f, result.normStats!.mean, result.normStats!.std))
-            : testFeaturesRaw
-          const flatFeatures = testFeatures.flat()
+          // Stream test samples + fill a pre-allocated flat array in one pass.
+          // v1.7.1 memory fix: avoid the samples.map().map().flat() triple-copy.
+          const testLabels: string[] = []
+          const flatFeatures = new Array<number>(testCount * D)
+          const mean = result.normStats?.mean
+          const std = result.normStats?.std
+          let ti = 0
+          for (const s of streamSamplesByTaskAndSplit(args.taskId, "test")) {
+            testLabels.push(s.label)
+            const base = ti * D
+            for (let d = 0; d < D; d++) {
+              const v = s.features[d] ?? 0
+              flatFeatures[base + d] = mean && std ? (v - mean[d]!) / std[d]! : v
+            }
+            ti++
+          }
           const inputName = `neuron_run_${run.id}_val_inputs`
-          await rsTensor.createTensor(inputName, flatFeatures, [testSamples.length, D])
+          await rsTensor.createTensor(inputName, flatFeatures, [testCount, D])
           const evalResult = await rsTensor.evaluateMlp(mlpName, inputName)
           const rawPreds = evalResult.predictions?.data ?? []
           let correct = 0
-          for (let i = 0; i < testSamples.length; i++) {
+          for (let i = 0; i < testCount; i++) {
             const logits = rawPreds.slice(i * K, (i + 1) * K)
             const predIdx = argmax(softmax(logits))
             const predictedLabel = labelNames[predIdx] ?? "unknown"
-            if (predictedLabel === testSamples[i]!.label) correct++
+            if (predictedLabel === testLabels[i]) correct++
           }
-          valAccuracy = correct / testSamples.length
+          valAccuracy = correct / testCount
         } catch (e) {
           // Non-fatal; log and continue. The run still finalizes normally.
           log(`val eval skipped: ${e instanceof Error ? e.message : String(e)}`)

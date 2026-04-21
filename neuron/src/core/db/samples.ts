@@ -57,6 +57,34 @@ export function getSamplesByTaskAndSplit(taskId: string, split: "train" | "test"
   ).all(taskId, split, split) as DbRow[]).map(toSampleRow)
 }
 
+/**
+ * Stream samples row-by-row via bun:sqlite's iterator API. Used by the
+ * training pipeline so we don't materialize 60k × 784 Fashion-MNIST-style
+ * datasets as nested JS arrays (v1.7.1 memory fix).
+ *
+ * Parses each row's features on demand — caller is responsible for discarding
+ * the row object after use so GC can reclaim.
+ */
+export function* streamSamplesByTaskAndSplit(
+  taskId: string,
+  split: "train" | "test",
+): IterableIterator<SampleRow> {
+  const stmt = db.query(
+    "SELECT * FROM samples WHERE task_id = ? AND (split = ? OR (split IS NULL AND ? = 'train')) ORDER BY id",
+  )
+  for (const row of stmt.iterate(taskId, split, split) as IterableIterator<DbRow>) {
+    yield toSampleRow(row)
+  }
+}
+
+/** Fast count without materializing — used to pre-allocate flat tensors. */
+export function countSamplesByTaskAndSplit(taskId: string, split: "train" | "test"): number {
+  const row = db.query(
+    "SELECT COUNT(*) as c FROM samples WHERE task_id = ? AND (split = ? OR (split IS NULL AND ? = 'train'))",
+  ).get(taskId, split, split) as { c: number }
+  return row.c
+}
+
 export function getSamplesPaginated(opts: { taskId: string; label?: string; limit: number; offset: number }) {
   const where = opts.label ? "task_id = ? AND label = ?" : "task_id = ?"
   const params = opts.label ? [opts.taskId, opts.label] : [opts.taskId]

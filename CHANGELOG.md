@@ -4,6 +4,49 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v1.7.1 — 2026-04-21
+
+**Fixes Fashion-MNIST (60k × 784) OOM during training.** User's machine crashed when `auto_train` hit a wave that tried to materialize 60k × 784 feature arrays as nested JS objects, then copied them for normalization, then flattened them. Peak ~3GB JS heap, easy crash on 8GB laptops.
+
+### Fixed
+
+- **`core/train.ts` ingestion rewritten** to a single-pass stream into a pre-allocated flat array. Old path held three parallel representations (nested raw arrays → nested normalized arrays → flat). New path: one flat `N*D` array filled row-by-row with raw values, stats accumulated on the fly, then normalized **in place**. Peak memory for the Fashion-MNIST shape dropped from ~3GB to ~400MB (smoke-tested with 60k × 784 synthetic — heap stayed at 360MB through fill+normalize).
+- **`trainBg.ts` stopped loading samples twice.** Previously did `getSamplesByTask` just to count, then `getSamplesByTaskAndSplit` to partition. Now uses a cheap `countSamplesByTaskAndSplit` first, materializes only the split we actually need.
+- **Val-split evaluation also stream-based.** The post-train held-out eval was doing the same `map(raw).map(applyNorm).flat()` triple-copy as training. Now streams test samples straight into a pre-allocated flat array with normalization applied in the fill loop.
+- **New DB helpers**: `streamSamplesByTaskAndSplit(taskId, split)` (bun:sqlite `.iterate()` generator) and `countSamplesByTaskAndSplit(taskId, split)`.
+
+### Smoke-tested
+
+60k × 784 synthetic dataset (Fashion-MNIST shape), stream-fill-normalize end-to-end:
+
+- heap before train: 195 MB
+- heap peak during fill: 554 MB
+- heap after normalize: 360 MB
+- RSS peak: 1.25 GB (includes Node/Bun runtime + SQLite cache)
+
+On the old path this shape was ~3GB heap / OOM territory. Now it's within safe margins on 8GB laptops.
+
+### Unchanged
+
+- Tournament sub-agents, sweep execution mode (still in-process sequential from v1.7.0), training algorithm, tensor math — all untouched.
+- Bench Δ=+0.000 on all 5 datasets.
+- MCP surface unchanged.
+- Class-weights=balanced path still materializes (it needs the [N][D] matrix to resample per class). Low-priority follow-up; doesn't trigger on balanced datasets like Fashion-MNIST or the bench suite.
+
+### Known remaining memory cost
+
+- The flat `inputs` array is still a plain `number[]`. Each entry is a boxed double (~8 bytes + overhead). For 60k × 784 that's ~380 MB. A follow-up could use `Float32Array` for a ~50% further reduction, but requires changing the rs-tensor transport.
+- `JSON.stringify(inputs)` during `createTensor` over MCP stdio is still a transient ~200MB string allocation. Unavoidable without a new transport.
+
+### Upgrade
+
+```bash
+ml-labs update
+ml-labs --version   # prints 1.7.1
+```
+
+---
+
 ## v1.7.0 — 2026-04-21
 
 **Fixes the "auto_train crashed my PC" bug.** User loaded a large CSV (v1.6.3 fix worked), then ran `auto_train` and the machine hung. Same class of resource issue as v1.6.3, different layer — this time in the sweep execution path.
