@@ -15,6 +15,9 @@ import { buildRunContext } from "../core/run-context"
 import { datasetHash } from "../util/hash"
 import { resolveSeed } from "../util/rng"
 import { updateDatasetHash } from "../core/db/runs"
+import { rsTensor } from "../core/mcp_client"
+import { applyNorm, softmax, argmax } from "../core/metrics"
+import { log } from "../core/logger"
 
 export interface StartTrainArgs {
   taskId: string
@@ -38,6 +41,7 @@ export async function startTrainBackground(args: StartTrainArgs): Promise<{ runI
   const allSamples = getSamplesByTask(args.taskId)
   const hasSplit = allSamples.some((s) => s.split === "test")
   const trainSamples = hasSplit ? getSamplesByTaskAndSplit(args.taskId, "train") : allSamples
+  const testSamples = hasSplit ? getSamplesByTaskAndSplit(args.taskId, "test") : []
 
   if (trainSamples.length === 0) throw new Error("No training samples — load data with load_csv first")
 
@@ -125,6 +129,36 @@ export async function startTrainBackground(args: StartTrainArgs): Promise<{ runI
         },
       })
 
+      // Evaluate on held-out test split if one exists — populates val_accuracy
+      // so downstream tools (cv_train, winner selection, overfit detection)
+      // have a real generalization signal.
+      let valAccuracy: number | undefined
+      if (testSamples.length > 0 && !isRegression) {
+        try {
+          const mlpName = `neuron_run_${run.id}_mlp`
+          const testFeaturesRaw = testSamples.map((s) => s.features)
+          const testFeatures = result.normStats
+            ? testFeaturesRaw.map((f) => applyNorm(f, result.normStats!.mean, result.normStats!.std))
+            : testFeaturesRaw
+          const flatFeatures = testFeatures.flat()
+          const inputName = `neuron_run_${run.id}_val_inputs`
+          await rsTensor.createTensor(inputName, flatFeatures, [testSamples.length, D])
+          const evalResult = await rsTensor.evaluateMlp(mlpName, inputName)
+          const rawPreds = evalResult.predictions?.data ?? []
+          let correct = 0
+          for (let i = 0; i < testSamples.length; i++) {
+            const logits = rawPreds.slice(i * K, (i + 1) * K)
+            const predIdx = argmax(softmax(logits))
+            const predictedLabel = labelNames[predIdx] ?? "unknown"
+            if (predictedLabel === testSamples[i]!.label) correct++
+          }
+          valAccuracy = correct / testSamples.length
+        } catch (e) {
+          // Non-fatal; log and continue. The run still finalizes normally.
+          log(`val eval skipped: ${e instanceof Error ? e.message : String(e)}`)
+        }
+      }
+
       finalizeRun(run.id, {
         accuracy: result.metrics.accuracy,
         perClassAccuracy: result.metrics.perClassAccuracy,
@@ -136,6 +170,7 @@ export async function startTrainBackground(args: StartTrainArgs): Promise<{ runI
         mae: result.regressionMetrics?.mae,
         rmse: result.regressionMetrics?.rmse,
         r2: result.regressionMetrics?.r2,
+        ...(valAccuracy !== undefined ? { valAccuracy } : {}),
       })
 
       if (!isRegression) updateTaskLabels(args.taskId, labelNames)
