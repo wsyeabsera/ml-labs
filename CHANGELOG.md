@@ -4,6 +4,45 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v1.5.1 — 2026-04-21
+
+**Skills refresh.** The Claude skill files (`neuron`, `neuron-ui`) and the per-project `CLAUDE.md` template hadn't been updated since v0.9-era. We'd shipped ~12 new MCP tools (`calibrate`, `drift_check`, `cv_train`, `data_audit`, `auto_preflight`, `inspect_data`, `get_training_curves`, `model_stats`, `log_auto_note`, `cancel_auto_train`, `llm_load`, `llm_generate`, `llm_inspect`) and changed behavior on many more — but Claude in a freshly `ml-labs init`'d project would still read a 30-tool description missing half of them.
+
+### Updated
+
+- **`.claude/skills/neuron/SKILL.md`** — rewritten from scratch.
+  - Accurate 42-tool inventory organized by purpose (task+data, auto-train, training, inspection, active learning, inference, calibration, production, LLM).
+  - Documents new `train` parameters (optimizer, lr_schedule, weight_decay, grad_clip, swa, label_smoothing, activation, loss).
+  - Documents new `auto_train` flags (tournament, auto_collect, seed) and the rich decision_log output.
+  - Documents new signature workflows: active-learning labeling loop, shadow-model validation, cancellation path.
+  - Adds honest scope limits for LLM tools (CPU-only, naive whitespace tokenizer, one model at a time).
+  - New "Hard-earned rules" section distilling the cross-cutting guidance.
+- **`.claude/skills/neuron-ui/SKILL.md`** — route map brought current.
+  - Adds `/playground`, `/tasks/:id/label`, `/auto`, `/auto/:id`, `/drift`, `/activity`.
+  - Per-route verification snippets (drift banner, shadow card, batch live card, labeling queue, LLM load state, auto-run why-cards).
+- **`cli/templates/CLAUDE.md`** — the per-project CLAUDE.md that `ml-labs init` drops in.
+  - Current tool table with the Phase 6–11A additions.
+  - Signature "when things go wrong" section (cancel_auto_train, zombie runs, drift, miscalibration).
+  - Dashboard routes worth knowing list.
+
+### Why this matters
+
+Skills ship with `ml-labs init`. Projects created before this release have stale skill files; they'll still work but Claude won't know about the newer tools. For existing projects, re-run `ml-labs init` in the project dir (it only overwrites `.claude/` / `CLAUDE.md` if you opt in, or manually copy the updated files from `~/.ml-labs/.claude/skills/` and `~/.ml-labs/cli/templates/CLAUDE.md`).
+
+### Non-changes
+
+- No code changes — typecheck clean, bench Δ=+0.000, no rs-tensor rebuild.
+- No MCP surface changes from v1.5.0.
+
+### Upgrade
+
+```bash
+ml-labs update
+ml-labs --version   # prints 1.5.1
+```
+
+---
+
 ## v1.5.0 — 2026-04-21
 
 **Phase 11A — small-LLM inference surface + Labeling UI.** Exposes the dormant LLaMA/GGUF inference code in rs-tensor (`llama.rs` + `gguf.rs` — ~1000 lines that were never surfaced at the Neuron layer) as MCP tools and a dashboard Playground. Also lands the long-deferred labeling UI that closes the active-learning visual loop from Phase 7A.
