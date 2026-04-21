@@ -21,7 +21,7 @@ export interface PlannerPlan {
   configs: SweepConfig[]
   rationale: string
   rules_fired: string[]
-  source: "planner" | "rules" | "hybrid" | "tournament"
+  source: "planner" | "rules" | "hybrid" | "tournament" | "tpe" | "tpe+critic"
   strategy?: PlannerStrategy
 }
 

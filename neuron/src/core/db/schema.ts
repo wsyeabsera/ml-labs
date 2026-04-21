@@ -146,3 +146,16 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_auto_patterns_fp ON auto_patterns(task_fingerprint, best_metric DESC);
 `)
+
+// rule_effectiveness — tracks which refinement rules fire and which produce winners
+db.exec(`
+  CREATE TABLE IF NOT EXISTS rule_effectiveness (
+    rule_name            TEXT NOT NULL,
+    task_fingerprint     TEXT NOT NULL,
+    fired_count          INTEGER NOT NULL DEFAULT 0,
+    produced_winner_count INTEGER NOT NULL DEFAULT 0,
+    updated_at           INTEGER NOT NULL DEFAULT (unixepoch()),
+    PRIMARY KEY (rule_name, task_fingerprint)
+  );
+  CREATE INDEX IF NOT EXISTS idx_rule_eff_fp ON rule_effectiveness(task_fingerprint);
+`)

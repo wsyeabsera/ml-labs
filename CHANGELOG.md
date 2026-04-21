@@ -4,6 +4,47 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v0.12.0 — 2026-04-21
+
+### Added — Phase 6 (smarter AutoML)
+
+Four pieces that take the planner from a "one-shot prompt" to a system with its own memory, search strategy, and ergonomic surface.
+
+- **TPE (Tree-structured Parzen Estimator)** — `neuron/src/core/auto/tpe.ts`. Minimal self-contained implementation: splits observations into top-γ "good" set, samples from it with perturbation (jitter), handles log_uniform / int_uniform / uniform / categorical params. Deterministic with seed. Used by the controller starting at wave 3+ when rules+planner have had their pass.
+- **Hybrid controller handoff** — waves 1-2 keep rules + Claude planner. Wave 3+ calls TPE with all prior `RunSignals` as observations. Inherits non-TPE fields (head_arch, activation, loss, …) from the best prior run so modern-variant wins don't get lost.
+- **Meta-tools** — `data_audit` (inspect_data + preflight_check, one call) and `auto_preflight` (data_audit + hyperparameter suggestion, with imbalance-aware suggestion). Halves typical Claude-agent tool chains at the start of a session.
+- **Rule-effectiveness tracking** — new `rule_effectiveness` SQL table. After each wave, every rule that fired gets a `fired_count++`. After winner selection, the rules that produced the winner get a `produced_winner_count++`. Helpers: `recordRulesFired`, `recordRulesProducedWinner`, `getRuleStats`, `totalTrialsFor`. Fingerprint-scoped, so stats accumulate per (kind, K, D-bucket, N-bucket, imbalance-bucket) cell.
+
+### Schema
+
+- New `rule_effectiveness (rule_name, task_fingerprint, fired_count, produced_winner_count, updated_at)` — keyed by (rule_name, task_fingerprint).
+
+### Tests
+
+- 148 unit tests (+7 for rule-stats, +8 for TPE).
+- TPE determinism verified; categorical + numeric perturbation tested.
+- Rule-stats: atomic upsert + fingerprint isolation.
+
+### Deferred (with rationale in ROADMAP retro)
+
+- **Diagnoser sub-agent** — Phase 6.5. Separate Claude agent with JSON schema, conditionally invoked on `severity=critical` / `overfit_gap > 0.2`.
+- **Typed `outputSchema` on MCP tools** — Phase 6.5. Every tool gets an output schema; wider refactor deserving its own pass.
+- **Bayesian optimization beyond TPE (SMAC, BoHB)** — unchanged; defer until TPE proves or fails.
+
+### Backward compat
+
+- Existing benches (iris, wine, breast-cancer, housing, digits) hit target in wave 1 with the Phase 3 modern seed, so TPE doesn't activate and Δ=+0.000 across all datasets.
+
+### Upgrade
+
+```bash
+ml-labs update
+```
+
+TS-only changes plus a new SQLite table (auto-migrated). No rs-tensor rebuild needed.
+
+---
+
 ## v0.11.0 — 2026-04-21
 
 ### Added — Phase 5 (progress streaming + timeout hygiene)

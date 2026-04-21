@@ -79,6 +79,7 @@ export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
     publish_name: args.publish_name,
     publish_version: args.publish_version ?? new Date().toISOString().slice(0, 10),
     tournament: args.tournament,
+    seed: args.seed,
   })
 
   recordEvent({ source: "mcp", kind: "auto_completed", taskId: args.task_id, payload: { autoRunId: autoRun.id, status: result.status, runId: result.run_id, accuracy: result.accuracy, wallClockS: result.wall_clock_s } })

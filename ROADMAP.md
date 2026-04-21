@@ -391,6 +391,8 @@ Every phase has the same skeleton:
 
 ## Phase 6 — Smarter AutoML (hybrid planner + critic)
 
+**Status**: ✅ **Shipped as v0.12.0 on 2026-04-21** (partial — core 4 of 5 items; diagnoser + typed outputs deferred to 6.5). See retro.
+
 **Goal**: The planner stops being a one-shot prompt and starts being a learning system.
 
 ### Scope
@@ -448,6 +450,32 @@ Every phase has the same skeleton:
 ### Ships as
 
 **v0.12.0**. The "AutoML actually getting smarter" release.
+
+### Retro (2026-04-21)
+
+**Shipped 4 of the planned 5 pieces**: TPE + hybrid controller handoff + meta-tools + rule-effectiveness. Deferred diagnoser sub-agent + typed outputs to Phase 6.5 to keep this phase from turning into a month-long project.
+
+**What shipped**:
+- **TPE** (`core/auto/tpe.ts`) — minimal deterministic implementation using weighted resampling from top-γ. Handles log_uniform / int_uniform / uniform / categorical. 8 unit tests cover determinism, history learning, categorical skew.
+- **Hybrid controller** — wave 3+ hands off to TPE; inherits non-TPE fields from the best prior run so modern-seed wins aren't lost.
+- **Meta-tools** — `data_audit` (inspect + preflight) and `auto_preflight` (audit + suggest). Immediate UX win; halves common Claude tool chains.
+- **Rule-effectiveness** — new table + helpers; wired into the controller at wave-plan and winner-selection moments.
+
+**Why the bench numbers are unchanged**:
+Our 5-dataset bench hits the target in wave 1 thanks to the Phase 3 modern seed variant. Wave 3+ never triggers, so TPE doesn't activate and numbers stay at Δ=+0.000. **The infrastructure is there for harder tasks**; we'll see it shine when real users hit datasets the seed can't solve in one pass.
+
+**Scope deltas from the plan**:
+- **Diagnoser sub-agent deferred**. Another Claude sub-agent with its own prompt, JSON schema, and conditional invocation logic — worth a focused pass in Phase 6.5 rather than bolting on here.
+- **Typed `outputSchema` on MCP tools** deferred to Phase 6.5. Every tool needs a Zod output schema + `structuredContent` in the response — touches 35+ tools.
+- **Critic-veto loop** (planner reviewing TPE suggestions) dropped from scope: TPE suggestions are already sanity-checked numerically (lr in [0.001, 0.1], epochs ≥ 50). A Claude critic would add latency and complexity without a concrete failure to fix.
+
+**Time**: ~2.5 hours across all four pieces.
+
+**Follow-up candidates for Phase 6.5**:
+1. Diagnoser sub-agent (conditional on severity signals).
+2. Zod `outputSchema` sweep across all tools.
+3. Critic mode in planner.
+4. Rule-stats surfaced in the planner prompt (already queryable via `getRuleStats`, just not rendered into the prompt template yet).
 
 ---
 

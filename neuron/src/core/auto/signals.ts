@@ -14,7 +14,19 @@ export interface DataHealth {
 
 export interface RunSignals {
   run_id: number
-  config: { lr?: number; epochs?: number; head_arch?: number[]; class_weights?: "balanced"; weight_decay?: number; early_stop_patience?: number }
+  config: {
+    lr?: number
+    epochs?: number
+    head_arch?: number[]
+    class_weights?: "balanced"
+    weight_decay?: number
+    early_stop_patience?: number
+    optimizer?: "sgd" | "adam" | "adamw"
+    activation?: "tanh" | "relu" | "gelu" | "leaky_relu"
+    loss?: "mse" | "cross_entropy"
+    lr_schedule?: "constant" | "cosine" | "linear_warmup"
+    batch_size?: number
+  }
   status: Run["status"]
   metric: number | null
   metric_name: "accuracy" | "r2"
@@ -137,8 +149,13 @@ export function collectRunSignals(run_id: number, isRegression: boolean): RunSig
   const loss = run.lossHistory ?? []
   const epochsRequested = (run.hyperparams as { epochs?: number }).epochs ?? null
   const hp = run.hyperparams as {
-    lr?: number; epochs?: number; headArch?: number[]; classWeights?: "balanced";
+    lr?: number; epochs?: number; headArch?: number[]; classWeights?: "balanced"
     weightDecay?: number; earlyStopPatience?: number
+    optimizer?: "sgd" | "adam" | "adamw"
+    activation?: "tanh" | "relu" | "gelu" | "leaky_relu"
+    loss?: "mse" | "cross_entropy"
+    lrSchedule?: "constant" | "cosine" | "linear_warmup"
+    batchSize?: number
   }
   const config = {
     lr: hp.lr,
@@ -147,6 +164,11 @@ export function collectRunSignals(run_id: number, isRegression: boolean): RunSig
     class_weights: hp.classWeights,
     weight_decay: hp.weightDecay,
     early_stop_patience: hp.earlyStopPatience,
+    optimizer: hp.optimizer,
+    activation: hp.activation,
+    loss: hp.loss,
+    lr_schedule: hp.lrSchedule,
+    batch_size: hp.batchSize,
   }
 
   const metric = isRegression ? run.r2 : (run.valAccuracy ?? run.accuracy)

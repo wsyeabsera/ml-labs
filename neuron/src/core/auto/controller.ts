@@ -6,7 +6,9 @@ import type { SweepConfig } from "../sweep/configs"
 import { collectSignals, computeDataHealth, type RunSignals } from "./signals"
 import { refineFromSignals, shouldContinue } from "./rules"
 import { runPlanner, runTournament, seedPlan } from "./planner"
+import { tpePlan } from "./tpe_adapter"
 import { lookupBestPattern, savePattern, taskFingerprint } from "./patterns"
+import { recordRulesFired, recordRulesProducedWinner } from "./rule-stats"
 import {
   saveVerdictJson,
   verdictSummaryOneLiner,
@@ -30,6 +32,7 @@ export interface ControllerArgs {
   publish_name?: string
   publish_version?: string
   tournament?: boolean
+  seed?: number
 }
 
 export interface ControllerResult {
@@ -108,6 +111,9 @@ export async function runController(args: ControllerArgs): Promise<ControllerRes
   let allRunSignals: RunSignals[] = []
   let wavesDone = 0
   let lastWaveRunIds: number[] = []
+  // Map each completed run id back to the rules that produced its wave.
+  // Used to attribute "produced_winner" credit to the right rules after winner selection.
+  const runIdToRules = new Map<number, string[]>()
 
   while (wavesDone < args.max_waves && !ac.signal.aborted) {
     if (elapsed() >= args.budget_s) break
@@ -149,6 +155,17 @@ export async function runController(args: ControllerArgs): Promise<ControllerRes
       } else {
         plan = seedPlan(bundle)
       }
+    } else if (wavesDone >= 2 && allRunSignals.length >= 3) {
+      // Hand off to TPE once rules + planner have had two passes and we have
+      // enough observations to do surrogate-style search. Rules still produce
+      // a fallback list in case TPE returns unusable configs.
+      const fallback = refineFromSignals(bundle)
+      const tpe = tpePlan(allRunSignals, 3, args.seed)
+      // Sanity-check TPE configs — if any are out of range, fall back to rules.
+      const safeTpe = tpe.configs.every(
+        (c) => (c.lr ?? 0) >= 0.001 && (c.lr ?? 0) <= 0.1 && (c.epochs ?? 0) >= 50,
+      )
+      plan = safeTpe ? tpe : { ...fallback, source: "rules" as const }
     } else {
       const rulesFallback = refineFromSignals(bundle)
       // NEURON_PLANNER=rules forces deterministic rules-only mode (used by benchmarks).
@@ -169,6 +186,9 @@ export async function runController(args: ControllerArgs): Promise<ControllerRes
       configs: plan.configs,
       rules_fired: plan.rules_fired,
     })
+
+    // Rule-effectiveness: every rule that fired this wave gets a fired_count bump.
+    recordRulesFired(plan.rules_fired, fingerprint)
 
     recordEvent({
       source: "mcp",
@@ -195,6 +215,8 @@ export async function runController(args: ControllerArgs): Promise<ControllerRes
     lastWaveRunIds = completedRunIds
     allRunIds.push(...completedRunIds)
     wavesDone += 1
+    // Attribute this wave's rules_fired to each run it produced.
+    for (const id of completedRunIds) runIdToRules.set(id, plan.rules_fired)
 
     // Collect signals for THIS wave
     const postBundle = collectSignals({
@@ -294,6 +316,12 @@ export async function runController(args: ControllerArgs): Promise<ControllerRes
       ? `run ${winner.run_id} score=${winnerMetric?.toFixed(3)} (raw ${metricName}=${winner.metric?.toFixed(3)}, overfit=${isOverfit})`
       : "no completed runs",
     { winner_run_id: winner?.run_id ?? null, score: winnerMetric, is_overfit: isOverfit })
+
+  // Rule-effectiveness: credit the winner's rules with a produced_winner bump.
+  if (winner?.run_id != null) {
+    const winnerRules = runIdToRules.get(winner.run_id) ?? []
+    if (winnerRules.length > 0) recordRulesProducedWinner(winnerRules, fingerprint)
+  }
 
   // Step 5: final status + verdict
   let status: VerdictStatus
