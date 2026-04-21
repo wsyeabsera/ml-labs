@@ -88,6 +88,9 @@ async function runOneFold(args: {
       seed: args.seed,
       cvFoldId: args.fold,
       cvParentId: args.parentRunId,
+      // Per-fold runs are diagnostic — they must not clobber the task's
+      // registered model (v1.6.1 bug fix).
+      autoRegister: false,
     })
     await waitForRun(runId)
     const run = getRun(runId)

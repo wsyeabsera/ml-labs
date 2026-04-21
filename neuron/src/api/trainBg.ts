@@ -42,6 +42,12 @@ export interface StartTrainArgs {
   swa?: boolean
   swaStartEpoch?: number
   labelSmoothing?: number
+  /**
+   * Auto-register the resulting run as the task's active model on completion.
+   * Defaults to true for backward compat with dashboard-launched trainings.
+   * cv_train sets this false so per-fold runs don't clobber the real winner.
+   */
+  autoRegister?: boolean
 }
 
 export async function startTrainBackground(args: StartTrainArgs): Promise<{ runId: number }> {
@@ -199,9 +205,12 @@ export async function startTrainBackground(args: StartTrainArgs): Promise<{ runI
       })
 
       if (!isRegression) updateTaskLabels(args.taskId, labelNames)
-      const prevModel = getRegisteredModel(args.taskId)
-      registerModel(args.taskId, run.id)
-      recordEvent({ source: "mcp", kind: "model_registered", taskId: args.taskId, runId: run.id, payload: { accuracy: result.metrics.accuracy, previousRunId: prevModel?.runId ?? null } })
+      const autoRegister = args.autoRegister !== false
+      const prevModel = autoRegister ? getRegisteredModel(args.taskId) : null
+      if (autoRegister) {
+        registerModel(args.taskId, run.id)
+        recordEvent({ source: "mcp", kind: "model_registered", taskId: args.taskId, runId: run.id, payload: { accuracy: result.metrics.accuracy, previousRunId: prevModel?.runId ?? null } })
+      }
       const numClasses = isRegression ? 0 : K
       recordEvent({ source: "mcp", kind: "run_completed", taskId: args.taskId, runId: run.id, payload: {
         accuracy: result.metrics.accuracy,

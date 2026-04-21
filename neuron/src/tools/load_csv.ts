@@ -15,7 +15,7 @@ export const schema = {
   label_column: z.string().describe("Column name containing the class label or regression target"),
   feature_columns: z.array(z.string()).optional().describe("Column names to use as features. Omit to use all non-label columns."),
   has_header: z.boolean().default(true).describe("Whether the CSV has a header row (default: true)"),
-  test_size: z.number().min(0).max(0.5).optional().describe("Fraction of data to reserve as test set (e.g. 0.2 for 20%). Omit to use all data for training."),
+  test_size: z.number().min(0).max(0.5).default(0.2).describe("Fraction of data to reserve as test set (default 0.2 = 20% held-out). Pass 0 to put everything in train — but auto_train will then report training accuracy as the winner metric, which is not honest."),
   stratify: z.union([z.literal("auto"), z.boolean()]).default("auto").describe("Whether to preserve class proportions in train/test split. 'auto' (default) enables stratification for classification tasks only; set true/false to override."),
   seed: z.number().int().optional().describe("Seed for the train/test split shuffle. Overrides NEURON_SEED env var. When set, the same seed produces the same split."),
 }

@@ -4,6 +4,36 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v1.6.1 — 2026-04-21
+
+**5 confirmed bug fixes.** A user running a real project (Pima diabetes) surfaced a batch of issues, then prompted a source audit. Every bug below was verifiable in the code; all fixes are small and scoped.
+
+### Fixed
+
+- **`cv_train` was clobbering the task's registered model.** `startTrainBackground` in `trainBg.ts` unconditionally called `registerModel()` at the end of every training, with no `autoRegister` flag. Every `cv_train` fold overwrote the task's active model — last fold always won. Fix: added `autoRegister?: boolean` to `StartTrainArgs` (default `true` for backward compat). `cv_train` now passes `autoRegister: false` so per-fold diagnostic runs don't touch the real winner.
+- **`suggest_samples` was feeding unnormalized features to a normalized model.** `predict.ts` and `model_stats.ts` both apply `run.normStats` to features before inference. `suggest_samples.ts` did not. For any task with normalization enabled (the default for CSV tabular data), this meant per-class accuracy and the uncertainty ranking were computed from garbage predictions — a trained model's class-0 accuracy would show as 0% while `model_stats` showed 78% on the same run. Fix: apply `applyNorm()` to every sample before building the input tensor.
+- **Single predictions weren't logged for drift detection.** `tools/predict.ts` and `api.ts#handlePredict` skipped the `logPrediction()` call — only the bundle-serving endpoints (`/api/registry/:name@:version/predict`) and `batch_predict` were writing to the `predictions` table. Users driving `mcp__neuron__predict` from Claude saw `drift_check` report "no data" because their predictions weren't stored. Fix: `tools/predict.ts` now logs every prediction via `logPrediction()`. Respects `NEURON_PREDICTION_SAMPLE_RATE` env var.
+- **`load_csv` had no default `test_size`.** The MCP tool schema was `test_size: z.number().optional()` with no default, while the HTTP endpoint defaulted to 0.2. So uploading via `mcp__neuron__load_csv` without specifying put all rows in `train`, no test split existed, `val_accuracy` stayed null, and the controller fell back to reporting training accuracy as the winner metric — dishonest but structurally consistent. Fix: default `test_size=0.2` on the MCP tool to match the HTTP behavior.
+- **`register_model` returned training accuracy as the headline number.** When a run has a `val_accuracy` (from a held-out split), that's the honest generalization metric; `run.accuracy` is measured over the training set. Fix: `register_model` response now returns both as separate fields (`train_accuracy`, `val_accuracy`) plus a headline `accuracy` that prefers `val_accuracy` when present, with `accuracy_source: "val_split" | "train_set"` so the caller can tell.
+
+### Not a bug
+
+- `diagnose` falling back to heuristics: MCP Sampling isn't supported by Claude Code's current CLI client. The tool says so in its response payload (`sampling_note`). Documented as an environment limitation; not fixable on our side.
+
+### Non-changes
+
+- Bench Δ=+0.000. No rs-tensor rebuild. No schema migration.
+- No API surface changes except the additive response fields in `register_model`.
+
+### Upgrade
+
+```bash
+ml-labs update
+ml-labs --version   # prints 1.6.1
+```
+
+---
+
 ## v1.6.0 — 2026-04-21
 
 **Phase 11.5 — intelligence fixes.** A gap analysis of how Neuron uses Claude surfaced that `suggest_hyperparams` was still telling Claude "SGD only, tanh only, no Adam, no mini-batches" — constraints that have been untrue since Phase 3 (v0.9.0, six phases ago). Claude was picking hyperparameters blindfolded. Four more gaps (planner emitting one-line rationale, no system prompts on sub-agents, no hardware context, no loss curve to diagnoser) were small individually but compounded into weaker intelligence than the platform deserved. This release fixes all five.

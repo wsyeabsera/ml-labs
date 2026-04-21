@@ -5,6 +5,7 @@ import type { Run } from "../core/db/runs"
 import { rsTensor } from "../core/mcp_client"
 import { softmax, argmax, applyNorm } from "../core/metrics"
 import { loadConfig } from "../adapter/loader"
+import { logPrediction } from "../core/db/predictions"
 
 let predCounter = 0
 
@@ -110,5 +111,21 @@ export async function handler(args: z.infer<z.ZodObject<typeof schema>>): Promis
     features = await config.featurize(args.raw)
   }
 
-  return runInference(model.run, task, features)
+  const t0 = Date.now()
+  const output = await runInference(model.run, task, features)
+
+  // Log for drift detection. Sampled via NEURON_PREDICTION_SAMPLE_RATE env var
+  // (default 1.0 — log everything). Single predicts were previously only logged
+  // from the registry-serving endpoints, so drift_check saw an empty table on
+  // locally-driven mcp__neuron__predict traffic (v1.6.1 bug fix).
+  logPrediction({
+    taskId: args.task_id,
+    runId: model.run.id,
+    modelUri: `neuron://local/run/${model.run.id}`,
+    features,
+    output,
+    latencyMs: Date.now() - t0,
+  })
+
+  return output
 }

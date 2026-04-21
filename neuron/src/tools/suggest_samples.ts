@@ -3,7 +3,7 @@ import { getRegisteredModel } from "../core/db/models"
 import { getTask } from "../core/db/tasks"
 import { getSamplesByTask } from "../core/db/samples"
 import { rsTensor } from "../core/mcp_client"
-import { softmax, argmax } from "../core/metrics"
+import { softmax, argmax, applyNorm } from "../core/metrics"
 import { hybridUncertaintyDiversity } from "../core/auto/coreset"
 
 export const name = "suggest_samples"
@@ -59,8 +59,13 @@ export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
   const D = task.featureShape[0] ?? samples[0]!.features.length
   const N = samples.length
 
-  // Build [N, D] input tensor
-  const flatFeatures = samples.flatMap((s) => s.features)
+  // Build [N, D] input tensor. CRITICAL: apply the run's normalization stats
+  // (mean/std) to each sample before evaluation — the model was trained on
+  // normalized features, so feeding raw features produces garbage predictions
+  // and wrong per-class accuracy. v1.6.1 bug fix.
+  const flatFeatures = run.normStats
+    ? samples.flatMap((s) => applyNorm(s.features, run.normStats!.mean, run.normStats!.std))
+    : samples.flatMap((s) => s.features)
   const inputName = "neuron_suggest_input"
   await rsTensor.createTensor(inputName, flatFeatures, [N, D])
 
