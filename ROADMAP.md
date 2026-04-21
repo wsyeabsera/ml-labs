@@ -96,6 +96,8 @@ Every phase has the same skeleton:
 
 ## Phase 2 — Training Pipeline Fundamentals
 
+**Status**: ✅ **Shipped as v0.8.0 on 2026-04-21.** See retro below.
+
 **Goal**: Every number auto_train reports is trustworthy and reproducible.
 
 ### Scope
@@ -142,6 +144,26 @@ Every phase has the same skeleton:
 ### Ships as
 
 **v0.8.0**. User-visible: `cv_train`, stratified splits, preprocessors. All additive.
+
+### Retro (2026-04-21)
+
+**Shipped as planned, minus preprocessors.** 123 tests pass in <150 ms. v0.8.0 tagged and released.
+
+**Key wins**:
+- Every run now carries a reproducibility receipt (`run_context` + `dataset_hash`).
+- K-fold CV ships as a first-class tool. Iris k=5 smoke: mean=0.713, std=0.016, reproducible.
+- Benchmark harness now fails on `dataset_hash` drift — accidental data edits get caught immediately.
+
+**Bug caught by the Phase 2 work** (not by a test, but by wiring up cv_train):
+- `startTrainBackground` never evaluated on held-out test samples, so `val_accuracy` was always null. Every consumer (overfit detection, winner selection, diagnose severity, dashboard views) was silently treating training accuracy as validation accuracy. Fix shipped in P2.3; baselines regenerated to reflect the real generalization numbers.
+- This is the second "captured by honest tooling" bug — Phase 1 caught the regression `K=70` head-size bug via the bench harness; Phase 2 caught this one while building cv_train which was the first consumer that actually needed val_accuracy to exist.
+
+**Scope deltas from the plan**:
+- **Preprocessors (OneHot, Quantile, LogOne, Robust) explicitly deferred.** They need a proper API design (sklearn-style fit-on-train-apply-to-test pipeline; composable transformer class hierarchy; integration with load_csv for categorical string columns). That's a design-heavy task worth its own slice — won't fit cleanly alongside run_context + CV without inflating the phase. Will land as Phase 2.5 or fold into Phase 3 when mini-batch makes larger tabular datasets tractable.
+- `load_json` stratify/test_size parity dropped for now — load_json ingestion flow doesn't currently split, and formalizing that parity is meaningful work. Added to the Phase 2.5 todo list.
+- Baseline regenerated because the val_accuracy fix (P2.3) changed what "accuracy" measures in the benchmarks: was training accuracy (optimistic), now held-out val accuracy (honest). iris 0.967 → 0.800, breast-cancer 0.969 → 0.947. This is progress, not regression.
+
+**Time**: ~2.5 hours.
 
 ---
 

@@ -10,6 +10,7 @@ process.env.NEURON_SWEEP_MODE = "sequential"
 import { createTask } from "../../src/core/db/tasks"
 import { handler as loadCsvHandler } from "../../src/tools/load_csv"
 import { handler as autoTrainHandler } from "../../src/tools/auto_train"
+import { getRun } from "../../src/core/db/runs"
 import type { BenchConfig, BenchResult } from "./types"
 
 const BENCH_DIR = dirname(fileURLToPath(import.meta.url))
@@ -60,9 +61,10 @@ export async function runBench(config: BenchConfig, seed = 42): Promise<BenchRes
   }) as {
     status: string
     accuracy: number | null
+    run_id: number | null
     waves_used: number
     verdict_json?: {
-      winner: { metric_value: number | null; metric_name: "accuracy" | "r2"; is_overfit: boolean }
+      winner: { run_id: number | null; metric_value: number | null; metric_name: "accuracy" | "r2"; is_overfit: boolean }
       attempted: { configs_tried: number; wall_clock_s: number }
     }
   }
@@ -71,6 +73,8 @@ export async function runBench(config: BenchConfig, seed = 42): Promise<BenchRes
   const vj = result.verdict_json
   const metric_value = vj?.winner.metric_value ?? result.accuracy
   const metric_name = vj?.winner.metric_name ?? (config.kind === "regression" ? "r2" : "accuracy")
+  const winnerRunId = vj?.winner.run_id ?? result.run_id
+  const dataset_hash = winnerRunId != null ? (getRun(winnerRunId)?.datasetHash ?? null) : null
 
   return {
     name: config.name,
@@ -83,6 +87,7 @@ export async function runBench(config: BenchConfig, seed = 42): Promise<BenchRes
     status: result.status,
     is_overfit: vj?.winner.is_overfit ?? false,
     seed,
+    dataset_hash,
   }
 }
 

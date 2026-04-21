@@ -31,6 +31,7 @@ export function writeBaseline(results: BenchResult[], neuronVersion: string): vo
       waves_used: r.waves_used,
       configs_tried: r.configs_tried,
       wall_clock_s: r.wall_clock_s,
+      dataset_hash: r.dataset_hash ?? null,
     }
   }
   const file: BaselineFile = {
@@ -43,7 +44,7 @@ export function writeBaseline(results: BenchResult[], neuronVersion: string): vo
 
 export interface ComparisonVerdict {
   name: string
-  status: "pass" | "regress" | "no_baseline" | "no_result"
+  status: "pass" | "regress" | "no_baseline" | "no_result" | "hash_mismatch"
   delta: number | null
   message: string
 }
@@ -58,6 +59,18 @@ export function compareToBaseline(result: BenchResult, baseline: BaselineFile | 
   const b = baseline.entries[result.name]!
   const delta = result.metric_value - b.metric_value
   const tol = TOLERANCE[result.metric_name]
+
+  // Dataset hash drift means the training set content changed — surfaces
+  // accidental data file edits or loader-bug regressions. Hard-fail.
+  if (b.dataset_hash != null && result.dataset_hash != null && b.dataset_hash !== result.dataset_hash) {
+    return {
+      name: result.name,
+      status: "hash_mismatch",
+      delta,
+      message: `dataset_hash drift — ${b.dataset_hash.slice(0, 10)} → ${result.dataset_hash.slice(0, 10)} (training data changed?)`,
+    }
+  }
+
   if (delta < -tol) {
     return {
       name: result.name,

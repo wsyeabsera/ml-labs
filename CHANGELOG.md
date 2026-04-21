@@ -4,6 +4,31 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v0.8.0 — 2026-04-21
+
+### Added — Phase 2 (training pipeline fundamentals)
+- **Implicit run context** — every run now records `{neuron_version, git_sha, rs_tensor_sha, hostname, pid, start_ts, rng_seed}` in a new `run_context` JSON column on `runs`. MLflow-style zero-ceremony reproducibility. Surfaced on `GET /api/runs/:id`.
+- **Dataset hash** — `dataset_hash` column stores a SHA-256 over `(sample_id, label, features)` triples for each run's training split. Identical data → identical hash, regardless of insertion order. Guards against accidental data drift.
+- **K-fold cross-validation** — new `cv_train` MCP tool (tool #35). Runs k training passes with rotating folds (stratified for classification, random for regression), reports mean ± std of the primary metric. Each fold's run is a regular `runs` row linked to an umbrella parent via new `cv_parent_id` and `cv_fold_id` columns.
+- **`stratify` param** on `load_csv` — `"auto"` (default) | `true` | `false`. Auto-stratifies for classification, random-splits for regression. Unchanged behavior when omitted; explicit control when needed.
+- **`seed` param** on `cv_train` (like `auto_train` / `train` / `load_csv`) — full deterministic reproducibility.
+- **Benchmark harness now tracks dataset_hash** — baseline entries include the hash; re-runs fail fast with a clear "dataset_hash drift" error if training data changes.
+
+### Fixed
+- **`val_accuracy` was always null** even when a train/test split existed. `startTrainBackground` (the path used by the dashboard, sweep, auto_train, and now cv_train) did not evaluate on held-out test samples. Every caller that looked at `valAccuracy` (overfit detection, winner selection, diagnose) was silently falling back to training accuracy. `trainBg` now runs a post-training evaluation on test samples and stores the real `val_accuracy`.
+- **Baseline numbers dropped** as a result of the fix (iris: 0.967 → 0.800, breast-cancer: 0.969 → 0.947). Old numbers were training-set accuracy; new numbers are honest generalization. Baseline regenerated to v0.8.0.
+
+### Refactors (no behavior change)
+- `createRun` now takes a `CreateRunOpts` object (previously positional `ownerPid`). All in-tree callers updated.
+- `Run.status` type gains `"cv_parent"`.
+- `assignSplits` exported from `load_csv.ts` for testability.
+
+### Tests
+- +39 unit tests (hash, run-context, stratify, kfold). Total: **123 tests, < 150 ms**.
+- Benchmark regenerated with v0.8.0 baselines; hash assertion validated.
+
+---
+
 ## v0.7.0 — 2026-04-21
 
 ### Added — Phase 1 (test & benchmark foundation)

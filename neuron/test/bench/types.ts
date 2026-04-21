@@ -20,6 +20,7 @@ export interface BenchResult {
   status: string
   is_overfit: boolean
   seed: number
+  dataset_hash: string | null
 }
 
 export interface BaselineEntry {
@@ -28,6 +29,7 @@ export interface BaselineEntry {
   waves_used: number
   configs_tried: number
   wall_clock_s: number
+  dataset_hash?: string | null
   note?: string
 }
 

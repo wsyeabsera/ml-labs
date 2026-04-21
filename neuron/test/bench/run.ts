@@ -14,7 +14,7 @@ async function main() {
   let regressCount = 0
 
   const SEED = 42
-  const NEURON_VERSION = "0.7.0"
+  const NEURON_VERSION = "0.8.0"
 
   console.log(`\n=== ml-labs benchmark harness ===`)
   console.log(`Running ${names.length} bench(es): ${names.join(", ")}`)
@@ -40,7 +40,7 @@ async function main() {
 
       const badge =
         verdict.status === "pass" ? "✓" :
-        verdict.status === "regress" ? "✗" :
+        verdict.status === "regress" || verdict.status === "hash_mismatch" ? "✗" :
         verdict.status === "no_baseline" ? "·" : "?"
 
       console.log(`${badge}  ${r.metric_name}=${r.metric_value?.toFixed(3) ?? "n/a"}  waves=${r.waves_used}  configs=${r.configs_tried}  t=${dt}s  ${verdict.message}`)

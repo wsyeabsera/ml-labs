@@ -1,34 +1,38 @@
 {
-  "generated_at": "2026-04-21T09:51:26.565Z",
-  "neuron_version": "0.7.0",
+  "generated_at": "2026-04-21T10:14:29.450Z",
+  "neuron_version": "0.8.0",
   "entries": {
     "iris": {
       "metric_name": "accuracy",
-      "metric_value": 0.9666666666666667,
+      "metric_value": 0.8,
       "waves_used": 2,
       "configs_tried": 5,
-      "wall_clock_s": 1
+      "wall_clock_s": 1,
+      "dataset_hash": "733f37fd73fa68a0fcda1ae3e982e19bf1fd4b1a415b481add2df97ae12831f3"
     },
     "wine": {
       "metric_name": "accuracy",
-      "metric_value": 0.9929577464788732,
+      "metric_value": 1,
       "waves_used": 1,
       "configs_tried": 3,
-      "wall_clock_s": 1
+      "wall_clock_s": 1,
+      "dataset_hash": "2231670b19e44f1d1f9b627f6137feea70a2017fbbeb45205fd60ade8ddd312e"
     },
     "breast-cancer": {
       "metric_name": "accuracy",
-      "metric_value": 0.9692982456140351,
+      "metric_value": 0.9469026548672567,
       "waves_used": 1,
       "configs_tried": 3,
-      "wall_clock_s": 1
+      "wall_clock_s": 1,
+      "dataset_hash": "6347fe773609ce832bbdbbefbe2757a4a1e25b4ff1f531e3f18e9fb277511beb"
     },
     "housing": {
       "metric_name": "r2",
       "metric_value": 0.8895308290548566,
       "waves_used": 1,
       "configs_tried": 3,
-      "wall_clock_s": 1
+      "wall_clock_s": 1,
+      "dataset_hash": "67f30efa172bc261796c2be3f514233b749119d927c91b7ae34482fc5ed6d9a8"
     }
   }
 }
