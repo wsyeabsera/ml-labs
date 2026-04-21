@@ -53,6 +53,8 @@ export async function handler(
     features: inspectObj.features ?? null,
     normalize_enabled: inspectObj.normalize_enabled ?? null,
     warnings,
+    // Phase 11.7: training memory budget, threaded from inspect_data.
+    training_budget: inspectObj.training_budget ?? null,
     // For consumers that want the raw underlying responses:
     _inspect: inspect,
     _preflight: preflight,

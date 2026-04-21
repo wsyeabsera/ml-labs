@@ -4,6 +4,82 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v1.8.0 — 2026-04-22
+
+**Phase 11.7 — Platform-aware guardrails.** User made the (correct) observation that ml-labs shouldn't just *fix* crashes reactively — it should *prevent* them. This release adds the prevention layer: every data tool now returns a memory-budget estimate, `auto_train` refuses workloads above a calibrated threshold without explicit `force: true`, and the Claude skill tells Claude to surface warnings to the user *before* starting a training that will hurt.
+
+### Added
+
+- **`core/memory_budget.ts`** — estimator: given `{N, D, K, kind}` returns:
+  ```ts
+  {
+    inputCells, peak_mb,
+    wall_clock_estimate_s: [low, high],
+    level: "safe" | "advisory" | "heavy" | "refuse",
+    headline,
+    advice[]
+  }
+  ```
+  Thresholds (calibrated from v1.7.1 smoke-test numbers):
+  | Level | Input cells | Peak MB | Notes |
+  |---|---|---|---|
+  | safe | < 5M | < 150 | Pima, iris, wine, small tabular |
+  | advisory | 5-20M | 150-500 | ~1-4 min per wave; CPU fine |
+  | heavy | 20-60M | 500-1500 | Fashion-MNIST range; real CPU time |
+  | refuse | > 60M | > 1500 | Likely crashes on 8GB; explicit opt-in required |
+
+- **`load_csv`, `inspect_data`, `data_audit`** now include `training_budget` in their responses. Non-blocking.
+
+- **`auto_train` preflight guardrail**:
+  - `level === "refuse"` + no `force` → throws with a clear error listing the workload shape, estimated peak memory, wall-clock, and actionable options.
+  - `level === "heavy"` → logs a warning, emits `auto_heavy_workload` event, proceeds.
+  - Otherwise proceeds silently.
+
+- **New `force: boolean` arg on `auto_train`** — override the guardrail. Default `false`.
+
+### Skill updates
+
+- **`neuron/SKILL.md`** has a new prominent section: "Before calling `auto_train`: check the memory budget." Tells Claude to read `training_budget` from `load_csv` / `inspect_data` / `data_audit` and warn the user when `level ∈ {"heavy", "refuse"}`.
+- **`cli/templates/CLAUDE.md`** gets a matching "Before heavy training" section + a `"Refusing to start auto_train"` entry in "When things go wrong."
+
+### Example
+
+```
+❯ mcp__neuron__auto_train({task_id: "cifar-10"})  # 50k × 3072
+Error: Refusing to start auto_train: workload is too large for the CPU-only MLP backend.
+
+  Very heavy workload (153,600,000 input cells, ~4389MB peak, ~10-30min per wave) — likely to crash on <16GB machines
+
+Options:
+  • For iteration speed, subset the dataset: e.g. keep the first 10-20k rows in a new task and load_csv again.
+  • Feature dimension D=3072 is high. Consider a featurize() callback in neuron.config.ts that downsamples…
+  • Expect minutes per wave on CPU. Run overnight or during a break. Cancel with cancel_auto_train if it gets stuck.
+  • To override, pass force: true to auto_train. But know that this workload has crashed 8GB machines in testing.
+
+If you're confident your machine has the memory, pass force: true.
+```
+
+### Non-changes
+
+- No rs-tensor changes. No new MCP tools.
+- Bench Δ=+0.000 (all bench datasets are `safe`).
+- Training path, controller, sweep, calibration, drift — all unchanged.
+
+### Upgrade
+
+```bash
+ml-labs update
+ml-labs --version   # prints 1.8.0
+```
+
+After update, existing projects need to sync their skills:
+```bash
+cp -r ~/.ml-labs/.claude/skills/* /your/project/.claude/skills/
+cp ~/.ml-labs/cli/templates/CLAUDE.md /your/project/CLAUDE.md
+```
+
+---
+
 ## v1.7.2 — 2026-04-21
 
 **Terminal now shows training progress on long runs.** User ran Fashion-MNIST auto_train after v1.7.1's memory fix, training worked, but the terminal was silent after `Creating training tensors [59990 × 784]…` for minutes. Per-epoch progress was always being emitted to the dashboard events bus — just not echoed to the MCP server's terminal. Fine for a 500ms Pima run; awful for a 10-minute Fashion-MNIST run.

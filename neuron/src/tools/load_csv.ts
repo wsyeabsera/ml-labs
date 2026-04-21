@@ -6,6 +6,7 @@ import { recordEvent } from "../core/db/events"
 import { log } from "../core/logger"
 import { existsSync, statSync } from "node:fs"
 import { createRng, resolveSeed } from "../util/rng"
+import { estimateTrainingBudget } from "../core/memory_budget"
 
 // Size guards. 500MB default cap keeps a real 130MB load fine while blocking
 // catastrophic accidents (a 5GB log file dropped in by mistake). Override with
@@ -136,6 +137,19 @@ export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
     payload: { inserted, errors: errors.length, train: splitSummary.train, test: splitSummary.test },
   })
 
+  // Phase 11.7: attach training memory budget so Claude can warn the user
+  // before they invoke auto_train on an overwhelming dataset.
+  const N_train = splitSummary.train
+  const D = rows[0]?.features.length ?? task.featureShape[0] ?? 0
+  const K = task.kind === "regression" ? 1 : Object.keys(counts).length
+  const training_budget = estimateTrainingBudget({
+    N: N_train, D, K,
+    kind: task.kind === "regression" ? "regression" : "classification",
+  })
+  if (training_budget.level === "heavy" || training_budget.level === "refuse") {
+    log(`Training budget: ${training_budget.headline}`)
+  }
+
   return {
     ok: true,
     inserted,
@@ -143,6 +157,7 @@ export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
     errors: errors.slice(0, 20),
     per_label: counts,
     splits: splitSummary,
+    training_budget,
   }
 }
 

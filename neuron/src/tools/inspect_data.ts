@@ -1,6 +1,7 @@
 import { z } from "zod"
 import { getTask } from "../core/db/tasks"
-import { getSamplesByTask, splitCounts, sampleCounts } from "../core/db/samples"
+import { getSamplesByTask, splitCounts, sampleCounts, countSamplesByTaskAndSplit } from "../core/db/samples"
+import { estimateTrainingBudget } from "../core/memory_budget"
 
 export const name = "inspect_data"
 export const description = "Dataset health check: feature stats (mean/std/min/max per dimension), class distribution, imbalance ratio, split counts, and null/constant feature warnings."
@@ -99,6 +100,14 @@ export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
 
   const splits = splitCounts(args.task_id)
 
+  // Phase 11.7: training memory budget so callers can warn before auto_train.
+  const N_train = countSamplesByTaskAndSplit(args.task_id, "train") || N
+  const K = task.kind === "regression" ? 1 : (task.labels?.length ?? Object.keys(classDist ?? {}).length)
+  const training_budget = estimateTrainingBudget({
+    N: N_train, D, K,
+    kind: task.kind === "regression" ? "regression" : "classification",
+  })
+
   return {
     ok: true,
     task_id: args.task_id,
@@ -114,5 +123,6 @@ export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
     imbalance_ratio: imbalanceRatio,
     normalize_enabled: task.normalize,
     warnings,
+    training_budget,
   }
 }

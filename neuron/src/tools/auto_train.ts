@@ -3,6 +3,9 @@ import { getTask } from "../core/db/tasks"
 import { createAutoRun } from "../core/db/auto"
 import { runController } from "../core/auto/controller"
 import { recordEvent } from "../core/db/events"
+import { countSamplesByTaskAndSplit, sampleCounts } from "../core/db/samples"
+import { estimateTrainingBudget } from "../core/memory_budget"
+import { log } from "../core/logger"
 
 export const name = "auto_train"
 export const description =
@@ -63,11 +66,50 @@ export const schema = {
     .max(5)
     .default(2)
     .describe("Max active-learning rounds when auto_collect=true (default 2)."),
+  force: z
+    .boolean()
+    .default(false)
+    .describe("Override the memory-budget guardrail. Required when the estimated training workload would exceed ~1.5GB peak memory (Fashion-MNIST-scale and up). Only pass when you know your machine has headroom."),
 }
 
 export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
   const task = getTask(args.task_id)
   if (!task) throw new Error(`Task "${args.task_id}" not found — create it first`)
+
+  // Phase 11.7: memory-budget preflight. Refuse workloads that will likely
+  // crash the host unless the caller explicitly passes force: true. Warn on
+  // "heavy" workloads without blocking.
+  const N_train = countSamplesByTaskAndSplit(args.task_id, "train")
+  const D = task.featureShape[0] ?? 0
+  const K = task.kind === "regression" ? 1 : (task.labels?.length ?? Object.keys(sampleCounts(args.task_id)).length)
+  const budget = estimateTrainingBudget({
+    N: N_train, D, K,
+    kind: task.kind === "regression" ? "regression" : "classification",
+  })
+
+  if (budget.level === "refuse" && !args.force) {
+    const adviceLines = budget.advice.map((a) => `  • ${a}`).join("\n")
+    throw new Error(
+      `Refusing to start auto_train: workload is too large for the CPU-only MLP backend.\n\n` +
+      `  ${budget.headline}\n\n` +
+      `Options:\n${adviceLines}\n\n` +
+      `If you're confident your machine has the memory, pass force: true.`,
+    )
+  }
+  if (budget.level === "heavy") {
+    log(`auto_train starting on a heavy workload: ${budget.headline}`)
+    recordEvent({
+      source: "mcp",
+      kind: "auto_heavy_workload",
+      taskId: args.task_id,
+      payload: {
+        N_train, D, K,
+        peak_mb: budget.peak_mb,
+        wall_clock_estimate_s: budget.wall_clock_estimate_s,
+        advice: budget.advice,
+      },
+    })
+  }
 
   const autoRun = createAutoRun(args.task_id, {
     accuracy_target: args.accuracy_target,

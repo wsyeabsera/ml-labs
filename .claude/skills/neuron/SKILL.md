@@ -177,6 +177,39 @@ Primary + shadow run sequentially on every `predict`. Primary output is returned
 
 Runs at `:5274` (dev) or `:2626` (prod). Every MCP tool call + run lifecycle event + drift + auto-cancel surfaces on `GET /api/events` (SSE). Browser "Ask Claude" writes to `data/requests.jsonl` — `/neuron-ask` processes queued questions.
 
+## Before calling `auto_train`: check the memory budget
+
+Every data-aware tool now returns a `training_budget` object:
+
+- `load_csv` response includes it
+- `inspect_data` response includes it
+- `data_audit` (meta-tool) includes it
+
+Shape:
+
+```ts
+training_budget: {
+  N: number
+  D: number
+  inputCells: number          // N * D
+  peak_mb: number              // estimated peak JS heap
+  wall_clock_estimate_s: [low, high]   // per wave
+  level: "safe" | "advisory" | "heavy" | "refuse"
+  headline: string
+  advice: string[]
+}
+```
+
+**If level is `"heavy"` or `"refuse"`, tell the user BEFORE calling `auto_train`.** Surface:
+
+- the headline string (peak MB + wall-clock range)
+- the advice list (subset the dataset, reduce dimensionality, accept the wait)
+- ask the user which option they want
+
+`auto_train` now refuses workloads at `level: "refuse"` unless `force: true`. On `"heavy"` it logs a warning and proceeds. This protects the user from crashing their machine on datasets like Fashion-MNIST (60k × 784) without explicit confirmation. The thresholds are calibrated to post-v1.7.1 memory numbers: safe < 5M input cells, advisory < 20M, heavy < 60M, refuse ≥ 60M.
+
+**Typical bad experience we prevent**: user loads 60k × 784 Fashion-MNIST → auto_train crashes their machine 5 minutes in. **Typical good experience**: you see `level: "heavy"` in the load_csv response → tell the user *"this will take 5-10 min and use ~1GB peak; want to subset to 10k rows for faster iteration?"* → they choose.
+
 ## Hard-earned rules
 
 - **Don't manually cancel training by killing processes.** Use `cancel_auto_train` / `cancel_training` tools; they coordinate DB state and child-run reaping.
@@ -184,3 +217,4 @@ Runs at `:5274` (dev) or `:2626` (prod). Every MCP tool call + run lifecycle eve
 - **Imbalance + small datasets**: `auto_train`'s seed wave already tries `class_weights="balanced"` when `imbalance_ratio > 3`. If you're still stuck, `suggest_samples` + labeling loop is usually faster than knob-twisting.
 - **Calibration matters for confidence**, not for argmax accuracy. A `calibrated=true` prediction's confidence is trustworthy; without it, neural-network softmax over-confidence is the norm.
 - **Drift is a leading indicator, not an alarm.** PSI > 0.25 on ≥20% of features is where retraining becomes defensible; below that, wait for more evidence.
+- **Respect the memory budget.** Anything above ~20M input cells (e.g. 30k × 700) is a multi-minute CPU training. Tell the user. Don't just fire auto_train and hope.

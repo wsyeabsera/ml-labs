@@ -59,9 +59,14 @@ See `.claude/skills/neuron/SKILL.md` for the full tool inventory (42 tools).
 - `/playground` — GGUF loader + text generation playground
 - `/drift` — per-task drift report
 
+## Before heavy training — check the memory budget
+
+`load_csv`, `inspect_data`, and `data_audit` return a `training_budget` object with `level: safe | advisory | heavy | refuse`. If it's `heavy` or `refuse`, stop before calling `auto_train` and tell the user what the estimated peak memory and wall-clock will be. Follow the `advice` array (usually: subset, reduce feature dim, or accept the wait). `auto_train` hard-refuses at `refuse` unless `force: true` — don't bypass that casually; it's calibrated to numbers that have crashed 8GB machines in testing.
+
 ## When things go wrong
 
 - **Auto_train won't stop** → `mcp__neuron__cancel_auto_train({task_id: "..."})`
 - **DB shows a zombie `running` run after a crash** → `mcp__neuron__cancel_training({run_id, force: true})`, or just restart the MCP server — the startup reaper clears stale rows.
 - **Predictions feel off** → `mcp__neuron__drift_check({task_id})`. If ≥20% of features drift, `/neuron-auto` retrain on fresh data.
 - **Model is overconfident** → calibration probably didn't run. Re-run `mcp__neuron__calibrate({run_id})` and confirm `predict` returns `calibrated: true`.
+- **"Refusing to start auto_train" error** → the dataset is too big for CPU-only MLP. Read the printed options (subset, reduce dimensionality, force) and talk to the user before overriding.
