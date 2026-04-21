@@ -4,6 +4,27 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v1.3.1 — 2026-04-21
+
+**Fixes `ml-labs --version` reporting 1.0.0.**
+
+Every phase since v1.0.0 bumped `neuron/package.json` + the API's in-code `VERSION` constant, but the CLI reads its version from the *root* `package.json` (`~/.ml-labs/package.json`) via `getVersion()` in `cli/index.ts`. Root had been stuck at `1.0.0` since the v1.0.0 release, so `ml-labs --version` showed `1.0.0` even on fully-updated installs.
+
+No functional changes — if you already did `ml-labs update` for v1.3.0, your actual code was up to date. This release just fixes the version string.
+
+### Fixed
+
+- Bumped `package.json` (root), `cli/package.json`, and `neuron/package.json` to `1.3.1`. From now on every release bumps all three in the same commit.
+
+### Upgrade
+
+```bash
+ml-labs update
+ml-labs --version   # now prints 1.3.1
+```
+
+---
+
 ## v1.3.0 — 2026-04-21
 
 **Phase 10.5 — Batch prediction observability.** Training runs have been first-class objects for a long time (DB row, background worker, SSE progress, history, detail view). Batch predictions were not — they ran inline on a blocking HTTP handler, capped at 200 rows, with zero persistence and no progress. This release brings batch predict up to parity.
