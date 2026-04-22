@@ -69,11 +69,27 @@ export function refineFromSignals(bundle: SignalBundle): RefinementPlan {
     const lr = n < 50 ? 0.05 : n < 200 ? 0.01 : 0.005
     const epochs = n < 50 ? 1000 : n < 200 ? 600 : 400
     const arch = [d, Math.max(d, 32), k]
-    const configs: SweepConfig[] = [
-      // Legacy SGD+tanh baseline at half, 1×, and 2× the heuristic LR
-      { lr: clampLr(lr * 0.5), epochs, head_arch: arch },
-      { lr: clampLr(lr),       epochs, head_arch: arch },
-    ]
+
+    // Seed wave composition.
+    //
+    //   N < 500  → 2 SGD+tanh baselines (at 0.5× + 1× lr) + 1 modern.
+    //              The extra SGD variant earns its keep on small data where
+    //              individual run variance matters.
+    //
+    //   N >= 500 → 1 SGD+tanh baseline (at 1× lr) + 1 modern. The half-lr
+    //              SGD variant is dominated by the modern AdamW+ReLU+cosine
+    //              variant in every Phase-3+ benchmark — it wastes ~minutes
+    //              of wall-clock on CPU (v1.8.1 seed-slim).
+    //
+    // In both cases the modern variant is LAST in the configs list so sequential
+    // sweeps hit the baseline first (fast to see forward motion); concurrent
+    // sweeps run them side-by-side.
+    const configs: SweepConfig[] = []
+    if (n < 500) {
+      configs.push({ lr: clampLr(lr * 0.5), epochs, head_arch: arch })
+    }
+    configs.push({ lr: clampLr(lr), epochs, head_arch: arch })
+
     // Modern variant: AdamW + ReLU + cosine + CE (classification) / MSE (regression).
     // Mini-batch kicks in once N ≥ 50 — below that, full-batch is simpler and faster.
     // Calibration goodies: label_smoothing on CE (classification), SWA on long runs.
@@ -93,13 +109,18 @@ export function refineFromSignals(bundle: SignalBundle): RefinementPlan {
     configs.push(modern)
 
     const rules_fired = ["seed", "seed_modern"]
+    const baselineEvidence = n < 500
+      ? [`dataset size N=${n} → seed lr=${lr}, epochs=${epochs}, two SGD variants (half + 1×)`]
+      : [`dataset size N=${n} → seed lr=${lr}, epochs=${epochs}, single SGD baseline (half-lr dropped to save CPU wall-clock)`]
     const rule_explanations: RuleExplanation[] = [
       {
         name: "seed",
         title: "Baseline (SGD + tanh)",
-        why: "For a fair starting point we pitch two proven-safe SGD+tanh variants at half and 1× the heuristic learning rate. If newer tricks don't help, these tell us.",
+        why: n < 500
+          ? "Small dataset — we pitch two proven-safe SGD+tanh variants at half and 1× the heuristic learning rate. If newer tricks don't help, these tell us."
+          : "One SGD+tanh proven-safe baseline at the heuristic learning rate. For N≥500 the modern AdamW+ReLU variant dominates in benchmarks — keeping only one SGD config saves ~half the wave wall-clock.",
         evidence: [
-          `dataset size N=${n} → seed lr=${lr}, epochs=${epochs}`,
+          ...baselineEvidence,
           `feature dim D=${d}, output dim K=${k}`,
         ],
       },
@@ -127,9 +148,11 @@ export function refineFromSignals(bundle: SignalBundle): RefinementPlan {
         ],
       })
     }
+    const sgdCount = n < 500 ? 2 : 1
+    const hasBalanced = !isRegression && bundle.data.imbalance_ratio != null && bundle.data.imbalance_ratio > 3
     return {
       configs,
-      rationale: `seed wave: 2 SGD+tanh variants + 1 AdamW+ReLU${isRegression ? "+MSE" : "+CE"} modern${configs.length > 3 ? " + class_weights=balanced" : ""}`,
+      rationale: `seed wave: ${sgdCount} SGD+tanh variant${sgdCount === 1 ? "" : "s"} + 1 AdamW+ReLU${isRegression ? "+MSE" : "+CE"} modern${hasBalanced ? " + class_weights=balanced" : ""}`,
       rules_fired,
       rule_explanations,
     }

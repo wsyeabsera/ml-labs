@@ -28,6 +28,7 @@ import {
   registerController, deregisterController, trackChildRun,
 } from "./registry"
 import { forceCancelRun } from "../db/runs"
+import { estimateTrainingBudget } from "../memory_budget"
 
 export interface ControllerArgs {
   task_id: string
@@ -256,16 +257,28 @@ async function runControllerBody(
       },
     })
 
-    // Run sweep. Default (v1.7.0+) is in-process sequential — no Claude
-    // sub-agents, no extra bun/rs-tensor child processes. Opt into the
-    // Claude-sub-agent path with NEURON_SWEEP_MODE=sub_agents if you
-    // specifically want it (costs ~300MB per concurrent config and doesn't
-    // actually parallelize training — rs-tensor serializes ops regardless).
+    // Run sweep. Mode chosen adaptively based on the memory budget (v1.8.1):
+    //   - "safe" / "advisory" workloads → runSweep (3 concurrent Claude sub-agents,
+    //     each with its own rs-tensor child → real parallelism, ~300MB × 3 extra
+    //     memory. Fine on small data.)
+    //   - "heavy" / "refuse" → runSweepSequential (one config at a time, in-process.
+    //     Prevents the 8GB-laptop crash that v1.7.0 was protecting against.)
+    // NEURON_SWEEP_MODE env var overrides: "sub_agents" forces concurrent,
+    // "sequential" or "in_process" forces sequential.
+    const envOverride = process.env.NEURON_SWEEP_MODE
+    const budget = estimateTrainingBudget({
+      N: bundle.data.n, D: bundle.data.d, K: bundle.data.k,
+      kind: args.task_kind,
+    })
+    let sweepMode: "sub_agents" | "in_process"
+    if (envOverride === "sub_agents") sweepMode = "sub_agents"
+    else if (envOverride === "sequential" || envOverride === "in_process") sweepMode = "in_process"
+    else sweepMode = (budget.level === "safe" || budget.level === "advisory") ? "sub_agents" : "in_process"
+
     const waveT0 = Date.now()
-    const sweepMode = process.env.NEURON_SWEEP_MODE === "sub_agents" ? "sub_agents" : "in_process"
     log(args.auto_run_id, `sweep_wave_${wavesDone + 1}_exec`,
-      `starting ${plan.configs.length} configs (mode=${sweepMode})`,
-      { mode: sweepMode, configs: plan.configs.length })
+      `starting ${plan.configs.length} configs (mode=${sweepMode}, budget=${budget.level})`,
+      { mode: sweepMode, budget_level: budget.level, configs: plan.configs.length })
     const results = sweepMode === "sub_agents"
       ? await runSweep(args.task_id, plan.configs, 3, ac.signal)
       : await runSweepSequential(args.task_id, plan.configs, ac.signal)

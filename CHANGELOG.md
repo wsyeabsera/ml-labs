@@ -4,6 +4,53 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v1.8.1 — 2026-04-22
+
+**Fixes auto_train being way slower than it needs to be on small-to-medium datasets.** A user running an 8k-row auto_train pointed out it was taking forever. Investigation turned up two compounding issues, both on me:
+
+### What was slow and why
+
+1. **v1.7.0 made every sweep sequential**, including on datasets that would never have crashed anything. That was a memory-safety tradeoff for Fashion-MNIST-scale workloads, but it silently 3×'d the wall-clock on Pima-sized tasks that had no memory problem to begin with. The v1.7.0 CHANGELOG claim of *"same or ~20-30% faster"* was only true for heavy workloads.
+2. **The seed wave always had 3 configs** — two SGD+tanh full-batch variants (at 0.5× and 1× LR) plus the modern AdamW+ReLU+cosine+CE variant. In every Phase-3+ benchmark, modern wins cleanly on N≥500. The half-LR SGD baseline was pure legacy preservation, costing ~minutes per wave for zero actual value.
+
+### Fixed
+
+- **Adaptive sweep mode.** The controller now reads the Phase 11.7 memory budget and picks:
+  - `safe` / `advisory` → concurrent sweep (3 Claude sub-agents, real parallelism, ~300MB each). Safe for small data; real parallelism means 3 configs finish together, not sequentially.
+  - `heavy` / `refuse` → in-process sequential (current behavior). Protects 8GB machines on Fashion-MNIST-scale data.
+  - `NEURON_SWEEP_MODE` env var still overrides (`sub_agents` force concurrent, `sequential` / `in_process` force sequential).
+  - New decision-log entry `sweep_wave_N_exec` now shows both mode AND budget level.
+- **Slimmer seed wave for N≥500.** Drops the half-LR SGD variant. Keeps 1 SGD baseline (at 1× LR) + 1 modern variant. For N<500 the 2 SGD variants stay because individual-run variance matters more on small data. Rule explanations updated to reflect the new composition.
+
+### Impact on your 8k run
+
+- Wave runs 3 configs in parallel (was 1 at a time) → rough 3× wall-clock improvement for the wave.
+- Wave has 2 configs instead of 3 → another ~33% reduction.
+- Combined: ~4-5× faster overall on small-to-medium datasets.
+
+Fashion-MNIST (level=heavy) keeps running sequential — unchanged from v1.7.x.
+
+### Bench
+
+- Full 5-dataset suite passes. Tiny shift on digits: 0.990 → 0.986 (within the 0.02 accuracy tolerance). The drop is because we removed one of the SGD variants that occasionally won the winner-selection tie-break; the modern variant is still the dominant winner.
+- iris, wine: unchanged (N<500, still 3 configs).
+- breast-cancer, digits: now 2 seed configs; finish faster.
+
+### Non-changes
+
+- No MCP surface changes. No rs-tensor changes.
+- Memory guardrails from v1.8.0 still active — heavy/refuse workloads still go sequential.
+- Tournament mode (`tournament: true`) unchanged — always spawns 3 planner sub-agents regardless of budget.
+
+### Upgrade
+
+```bash
+ml-labs update
+ml-labs --version   # prints 1.8.1
+```
+
+---
+
 ## v1.8.0 — 2026-04-22
 
 **Phase 11.7 — Platform-aware guardrails.** User made the (correct) observation that ml-labs shouldn't just *fix* crashes reactively — it should *prevent* them. This release adds the prevention layer: every data tool now returns a memory-budget estimate, `auto_train` refuses workloads above a calibrated threshold without explicit `force: true`, and the Claude skill tells Claude to surface warnings to the user *before* starting a training that will hurt.
