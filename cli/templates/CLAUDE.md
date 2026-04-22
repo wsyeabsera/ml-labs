@@ -59,9 +59,16 @@ See `.claude/skills/neuron/SKILL.md` for the full tool inventory (42 tools).
 - `/playground` — GGUF loader + text generation playground
 - `/drift` — per-task drift report
 
-## Before heavy training — check the memory budget
+## Before heavy training — preview and confirm
 
-`load_csv`, `inspect_data`, and `data_audit` return a `training_budget` object with `level: safe | advisory | heavy | refuse`. If it's `heavy` or `refuse`, stop before calling `auto_train` and tell the user what the estimated peak memory and wall-clock will be. Follow the `advice` array (usually: subset, reduce feature dim, or accept the wait). `auto_train` hard-refuses at `refuse` unless `force: true` — don't bypass that casually; it's calibrated to numbers that have crashed 8GB machines in testing.
+For `heavy` or `refuse` workloads, the right pattern is:
+
+1. Call `auto_train({..., dry_run: true})` — returns the plan (budget, seed configs, wall-clock estimate) without starting
+2. Show the user the preview: peak memory, total wall-clock, would_refuse
+3. Ask them to confirm before starting the real training
+4. If they confirm, call `auto_train` again without `dry_run` (and with `force: true` if `would_refuse: true`)
+
+For `safe` and `advisory` workloads (< 20M input cells), skip the preview and call `auto_train` directly — training completes fast enough that the preview overhead isn't worth it.
 
 ## When things go wrong
 

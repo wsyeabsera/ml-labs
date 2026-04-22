@@ -123,10 +123,13 @@ export function ActiveRunCard({ taskId, runId, compact = false }: Props) {
 
   // ETA: prefer epochsDone + total epochs; fall back to i/n stage progress.
   let etaS: number | null = null
+  let msPerEpoch: number | null = null
   if (elapsed > 0 && epochsDone != null && epochsDone > 0 && hp.epochs != null && hp.epochs > epochsDone) {
     etaS = (elapsed / epochsDone) * (hp.epochs - epochsDone)
+    msPerEpoch = Math.round((elapsed * 1000) / epochsDone)
   } else if (elapsed > 0 && hasProgress && i! > 0) {
     etaS = (elapsed / i!) * (n! - i!)
+    msPerEpoch = Math.round((elapsed * 1000) / i!)
   }
 
   if (compact) {
@@ -150,7 +153,9 @@ export function ActiveRunCard({ taskId, runId, compact = false }: Props) {
             </div>
           )}
         </div>
-        <span className="text-2xs font-mono text-[var(--text-3)] flex-shrink-0">{elapsed}s</span>
+        <span className="text-2xs font-mono text-[var(--text-3)] flex-shrink-0" title="elapsed">
+          {elapsed}s{etaS != null ? ` / ~${formatEta(etaS)}` : ""}
+        </span>
         <ArrowRight size={11} className="text-[var(--text-3)] group-hover:text-[var(--accent-text)] transition-colors flex-shrink-0" />
       </Link>
     )
@@ -202,6 +207,22 @@ export function ActiveRunCard({ taskId, runId, compact = false }: Props) {
       {/* Message (no i/n) */}
       {!hasProgress && message && (
         <p className="text-2xs text-[var(--text-3)] mb-2 truncate">{message}</p>
+      )}
+
+      {/* ETA / per-epoch rate — prominent for long runs */}
+      {(etaS != null || msPerEpoch != null) && (
+        <div className="flex items-center gap-3 text-2xs text-[var(--text-3)] font-mono mb-2">
+          {msPerEpoch != null && (
+            <span title="observed per-epoch wall-clock (higher D → slower)">
+              {msPerEpoch >= 1000 ? `${(msPerEpoch / 1000).toFixed(1)}s/epoch` : `${msPerEpoch}ms/epoch`}
+            </span>
+          )}
+          {etaS != null && (
+            <span title="estimated time remaining based on elapsed and epochs done">
+              eta {formatEta(etaS)}
+            </span>
+          )}
+        </div>
       )}
 
       {/* Live loss sparkline */}

@@ -70,6 +70,10 @@ export const schema = {
     .boolean()
     .default(false)
     .describe("Override the memory-budget guardrail. Required when the estimated training workload would exceed ~1.5GB peak memory (Fashion-MNIST-scale and up). Only pass when you know your machine has headroom."),
+  dry_run: z
+    .boolean()
+    .default(false)
+    .describe("Return a plan preview (memory budget + seed configs + wall-clock estimate + whether it would refuse) WITHOUT starting training. Use this for the heavy/refuse workloads before asking the user to confirm. Pair with a real auto_train call afterward when confirmed."),
 }
 
 export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
@@ -86,6 +90,67 @@ export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
     N: N_train, D, K,
     kind: task.kind === "regression" ? "regression" : "classification",
   })
+
+  // Dry-run preview: materialize the plan (budget + seed configs + ETA)
+  // without spawning the coordinator. Intended flow for heavy workloads:
+  //   1. Claude calls auto_train({dry_run: true}) → shows preview to user
+  //   2. User confirms
+  //   3. Claude calls auto_train() for real
+  if (args.dry_run) {
+    const { refineFromSignals } = await import("../core/auto/rules")
+    const { computeDataHealth } = await import("../core/auto/signals")
+    const data = computeDataHealth(args.task_id)
+    const seedPlan = refineFromSignals({
+      task_id: args.task_id,
+      task_kind: task.kind === "regression" ? "regression" : "classification",
+      target: { metric: task.kind === "regression" ? "r2" : "accuracy", value: args.accuracy_target },
+      data,
+      current_wave: [],
+      history: {
+        waves_done: 0,
+        budget_s: args.budget_s,
+        budget_used_s: 0,
+        prior_best_metric: null,
+        prior_best_config: null,
+      },
+    })
+
+    // Estimate per-wave wall-clock. The budget's [low, high] is for ONE config;
+    // waves have multiple configs and may run concurrent vs sequential.
+    // Concurrent (budget=safe/advisory): all configs in parallel → 1× per-config estimate
+    // Sequential (budget=heavy): configs run one at a time → Nconfigs × per-config
+    const perConfigLow = budget.wall_clock_estimate_s[0]
+    const perConfigHigh = budget.wall_clock_estimate_s[1]
+    const nConfigs = seedPlan.configs.length
+    const concurrent = budget.level === "safe" || budget.level === "advisory"
+    const waveWallClockLow = concurrent ? perConfigLow : perConfigLow * nConfigs
+    const waveWallClockHigh = concurrent ? perConfigHigh : perConfigHigh * nConfigs
+    // With max_waves > 1, refinement waves add more — cap expectation at waves × per-wave.
+    const totalLow = waveWallClockLow * args.max_waves
+    const totalHigh = waveWallClockHigh * args.max_waves
+
+    return {
+      ok: true,
+      dry_run: true,
+      task_id: args.task_id,
+      would_refuse: budget.level === "refuse" && !args.force,
+      budget,
+      seed_configs: seedPlan.configs,
+      n_configs: nConfigs,
+      sweep_mode: concurrent ? "concurrent" : "sequential",
+      max_waves: args.max_waves,
+      estimated_wall_clock_s: {
+        per_config: [perConfigLow, perConfigHigh],
+        seed_wave: [waveWallClockLow, waveWallClockHigh],
+        full_training: [totalLow, totalHigh],
+      },
+      recommendation: budget.level === "refuse"
+        ? "Workload too large — show the user the budget advice and ask them to subset / reduce dimensions / pass force:true."
+        : budget.level === "heavy"
+          ? "Heavy workload. Show the user the estimated wall-clock and peak memory, then ask them to confirm before starting."
+          : "Safe to proceed.",
+    }
+  }
 
   if (budget.level === "refuse" && !args.force) {
     const adviceLines = budget.advice.map((a) => `  • ${a}`).join("\n")

@@ -4,6 +4,78 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v1.9.0 — 2026-04-22
+
+**User-requested preview + ETA.** Continuing from v1.8.2, the user asked: (1) *"still not gonna crash my system right?"* and (2) *"would like some ETA features in the dashboard, and maybe confirm before auto_train starts."* This release ships both.
+
+### Added — `auto_train` dry-run preview
+
+New `dry_run: boolean` flag on `auto_train`. When true, returns the plan without starting training:
+
+```ts
+{
+  ok: true,
+  dry_run: true,
+  task_id,
+  would_refuse: boolean,         // would this workload refuse without force?
+  budget: { level, peak_mb, wall_clock_estimate_s, headline, advice[] },
+  seed_configs: SweepConfig[],   // what the first wave will train
+  n_configs: number,
+  sweep_mode: "concurrent" | "sequential",  // how the wave will execute
+  max_waves: number,
+  estimated_wall_clock_s: {
+    per_config: [low, high],
+    seed_wave: [low, high],       // accounts for concurrent vs sequential
+    full_training: [low, high],   // × max_waves
+  },
+  recommendation: string,
+}
+```
+
+Intended flow for heavy workloads:
+1. Claude calls `auto_train({dry_run: true})` → gets preview
+2. Presents to user: memory estimate, wall-clock range, sweep mode, # configs
+3. Asks user to confirm
+4. On confirmation, calls `auto_train` again without `dry_run`
+
+### Added — live ETA on dashboard
+
+**ActiveRunCard** (Overview + TaskDetail when training is running):
+- Compact view shows `elapsed / ~eta` instead of just `elapsed`
+- Full view adds a new line with `ms/epoch` (or `s/epoch` for slow trainings) and `eta Xm Ys`
+
+**RunDetail live progress** strip:
+- Prominent ETA in accent color
+- `ms/epoch` shown so users can see the actual per-epoch cost (helps them reason about whether the run is proceeding normally)
+
+ETA calculation uses `elapsed / epochsDone × (total - done)` when epoch progress is flowing, falls back to `i/n` stage progress otherwise.
+
+### Skill updates
+
+- `neuron/SKILL.md` has a new expanded section: "Before calling `auto_train`: check the memory budget + preview the plan." Explicit 5-step confirmation flow for heavy/refuse workloads.
+- `cli/templates/CLAUDE.md` gets the same in per-project form.
+
+### Non-changes
+
+- No new MCP tools — just new flag on `auto_train`.
+- No rs-tensor changes.
+- Bench Δ=+0.000 — all bench datasets are `safe`, dry_run is never triggered.
+
+### Upgrade
+
+```bash
+ml-labs update
+ml-labs --version   # prints 1.9.0
+```
+
+**Existing projects need to sync skills** to pick up the new dry-run guidance:
+```bash
+cp -r ~/.ml-labs/.claude/skills/* /your/project/.claude/skills/
+cp ~/.ml-labs/cli/templates/CLAUDE.md /your/project/CLAUDE.md
+```
+
+---
+
 ## v1.8.2 — 2026-04-22
 
 **Diagnosed by opening the user's live dashboard via chrome-devtools MCP.** User reported per-epoch wall-clock was "super slow" on Fashion-MNIST. Poking at `/api/runs/:id` + `/api/events` while training was in-flight revealed **14 seconds per epoch** for both concurrent configs. Root cause traced to the seed architecture rule.

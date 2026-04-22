@@ -534,16 +534,44 @@ export function RunDetail() {
       </div>
 
       {/* Live training progress */}
-      {run.status === "running" && (
-        <div className="card p-4 mb-6 flex items-center gap-3">
-          <div className="w-2 h-2 rounded-full bg-[var(--accent)] animate-pulse flex-shrink-0" />
-          <div className="min-w-0">
-            <p className="text-xs font-medium text-[var(--text-1)] capitalize">{stage ?? "training"}</p>
-            {stageMsg && <p className="text-2xs text-[var(--text-3)] mt-0.5 truncate">{stageMsg}</p>}
+      {run.status === "running" && (() => {
+        const progI = run.runProgress?.i
+        const progN = run.runProgress?.n
+        const epochsDone = run.runProgress?.epochsDone
+        const totalEpochs = (run.hyperparams as { epochs?: number }).epochs
+        let etaS: number | null = null
+        let msPerEpoch: number | null = null
+        if (elapsed > 0 && epochsDone != null && epochsDone > 0 && totalEpochs != null && totalEpochs > epochsDone) {
+          etaS = (elapsed / epochsDone) * (totalEpochs - epochsDone)
+          msPerEpoch = Math.round((elapsed * 1000) / epochsDone)
+        } else if (elapsed > 0 && progI != null && progN != null && progI > 0) {
+          etaS = (elapsed / progI) * (progN - progI)
+          msPerEpoch = Math.round((elapsed * 1000) / progI)
+        }
+        const fmtEta = (s: number) => s < 60 ? `${Math.round(s)}s` : s < 3600 ? `${Math.floor(s / 60)}m ${Math.round(s % 60)}s` : `${Math.floor(s / 3600)}h ${Math.round((s % 3600) / 60)}m`
+        return (
+          <div className="card p-4 mb-6 flex items-center gap-3">
+            <div className="w-2 h-2 rounded-full bg-[var(--accent)] animate-pulse flex-shrink-0" />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-medium text-[var(--text-1)] capitalize">{stage ?? "training"}</p>
+              {stageMsg && <p className="text-2xs text-[var(--text-3)] mt-0.5 truncate">{stageMsg}</p>}
+            </div>
+            <div className="flex items-center gap-3 text-xs font-mono flex-shrink-0">
+              {msPerEpoch != null && (
+                <span className="stat-num text-[var(--text-3)]" title="observed per-epoch wall-clock">
+                  {msPerEpoch >= 1000 ? `${(msPerEpoch / 1000).toFixed(1)}s/epoch` : `${msPerEpoch}ms/epoch`}
+                </span>
+              )}
+              {etaS != null && (
+                <span className="stat-num text-[var(--accent-text)]" title="estimated time remaining">
+                  eta {fmtEta(etaS)}
+                </span>
+              )}
+              <span className="stat-num text-[var(--text-3)]">{elapsed}s</span>
+            </div>
           </div>
-          <span className="ml-auto stat-num text-xs text-[var(--text-3)] flex-shrink-0">{elapsed}s</span>
-        </div>
-      )}
+        )
+      })()}
 
       {/* Regression metrics */}
       {(run.mae != null || run.rmse != null || run.r2 != null) && (

@@ -177,38 +177,43 @@ Primary + shadow run sequentially on every `predict`. Primary output is returned
 
 Runs at `:5274` (dev) or `:2626` (prod). Every MCP tool call + run lifecycle event + drift + auto-cancel surfaces on `GET /api/events` (SSE). Browser "Ask Claude" writes to `data/requests.jsonl` — `/neuron-ask` processes queued questions.
 
-## Before calling `auto_train`: check the memory budget
+## Before calling `auto_train`: check the memory budget + preview the plan
 
-Every data-aware tool now returns a `training_budget` object:
-
-- `load_csv` response includes it
-- `inspect_data` response includes it
-- `data_audit` (meta-tool) includes it
-
-Shape:
+Every data-aware tool now returns a `training_budget` object (`load_csv`, `inspect_data`, `data_audit`). Shape:
 
 ```ts
 training_budget: {
-  N: number
-  D: number
-  inputCells: number          // N * D
-  peak_mb: number              // estimated peak JS heap
-  wall_clock_estimate_s: [low, high]   // per wave
-  level: "safe" | "advisory" | "heavy" | "refuse"
-  headline: string
-  advice: string[]
+  N, D, inputCells,
+  peak_mb,
+  wall_clock_estimate_s: [low, high],
+  level: "safe" | "advisory" | "heavy" | "refuse",
+  headline, advice[]
 }
 ```
 
-**If level is `"heavy"` or `"refuse"`, tell the user BEFORE calling `auto_train`.** Surface:
+Thresholds (post-v1.7.1): safe < 5M input cells, advisory < 20M, heavy < 60M, refuse ≥ 60M. `auto_train` refuses `"refuse"` without `force: true`. On `"heavy"` it logs a warning and proceeds.
 
-- the headline string (peak MB + wall-clock range)
-- the advice list (subset the dataset, reduce dimensionality, accept the wait)
-- ask the user which option they want
+### The confirmation flow (required for heavy / refuse, recommended for advisory)
 
-`auto_train` now refuses workloads at `level: "refuse"` unless `force: true`. On `"heavy"` it logs a warning and proceeds. This protects the user from crashing their machine on datasets like Fashion-MNIST (60k × 784) without explicit confirmation. The thresholds are calibrated to post-v1.7.1 memory numbers: safe < 5M input cells, advisory < 20M, heavy < 60M, refuse ≥ 60M.
+1. **Call `auto_train({..., dry_run: true})`.** This returns a plan preview — `{budget, seed_configs, sweep_mode, estimated_wall_clock_s: {per_config, seed_wave, full_training}, would_refuse, recommendation}` — *without* starting training.
+2. **Show the user**:
+   - Peak memory estimate
+   - Total wall-clock range
+   - Number of configs + sweep mode (concurrent vs sequential)
+   - Any advice items (subset, reduce D, etc.)
+3. **Ask the user to confirm** — "This will take 5-10 min and peak around 1GB. Proceed?"
+4. **If they confirm, call `auto_train` again without `dry_run`**.
+5. If `would_refuse: true` and the user wants to proceed anyway, pass `force: true` in the real call.
 
-**Typical bad experience we prevent**: user loads 60k × 784 Fashion-MNIST → auto_train crashes their machine 5 minutes in. **Typical good experience**: you see `level: "heavy"` in the load_csv response → tell the user *"this will take 5-10 min and use ~1GB peak; want to subset to 10k rows for faster iteration?"* → they choose.
+### When to skip the confirmation
+
+For `level: "safe"` workloads (Pima, iris, small tabular < 5M input cells), just call `auto_train` directly. The preview adds no value at that scale — training completes in seconds.
+
+### Bad / good experience contrast
+
+**Bad** (what we had pre-Phase 11.7): user loads 60k × 784 Fashion-MNIST → calls `auto_train` → machine crashes 5 minutes in.
+
+**Good**: user loads Fashion-MNIST → `load_csv` response shows `training_budget.level: "heavy"` → Claude calls `auto_train({dry_run: true})` → gets the preview → tells the user *"this will take 5-10 min per wave and peak ~1GB; proceed?"* → user says yes or subsets first.
 
 ## Hard-earned rules
 
