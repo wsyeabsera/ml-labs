@@ -27,7 +27,7 @@ export interface RefinementPlan {
 const clampLr = (lr: number) => Math.max(0.001, Math.min(0.1, lr))
 
 function shallowerArch(arch: number[] | undefined, k: number, d: number): number[] {
-  const a = arch ?? [d, Math.max(d, 32), k]
+  const a = arch ?? [d, Math.min(128, Math.max(d, 32)), k]
   // head_arch is [D, ...hidden, K]. Drop middle hidden layer if ≥ 2, else halve first hidden.
   if (a.length >= 5) {
     // [D, h1, h2, ..., K]: drop the middle hidden
@@ -42,7 +42,7 @@ function shallowerArch(arch: number[] | undefined, k: number, d: number): number
 }
 
 function widerArch(arch: number[] | undefined, k: number, d: number): number[] {
-  const a = arch ?? [d, Math.max(d, 32), k]
+  const a = arch ?? [d, Math.min(128, Math.max(d, 32)), k]
   // Double each hidden layer.
   if (a.length < 3) return a
   const result = [a[0]!]
@@ -68,7 +68,13 @@ export function refineFromSignals(bundle: SignalBundle): RefinementPlan {
     const n = bundle.data.n
     const lr = n < 50 ? 0.05 : n < 200 ? 0.01 : 0.005
     const epochs = n < 50 ? 1000 : n < 200 ? 600 : 400
-    const arch = [d, Math.max(d, 32), k]
+    // Hidden layer width: at least 32 (for tiny-D tasks like iris D=4), at most 128
+    // (v1.8.2: previously was just Math.max(D, 32), which for D=784 Fashion-MNIST
+    // produced a [784, 784, 10] head with 622k weights → ~14s/epoch on CPU).
+    // Capping at 128 yields [784, 128, 10] with ~100k weights (~6× fewer) and
+    // matches the standard Fashion-MNIST MLP baseline of ~88% accuracy.
+    const hidden = Math.min(128, Math.max(d, 32))
+    const arch = [d, hidden, k]
 
     // Seed wave composition.
     //

@@ -4,6 +4,69 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v1.8.2 — 2026-04-22
+
+**Diagnosed by opening the user's live dashboard via chrome-devtools MCP.** User reported per-epoch wall-clock was "super slow" on Fashion-MNIST. Poking at `/api/runs/:id` + `/api/events` while training was in-flight revealed **14 seconds per epoch** for both concurrent configs. Root cause traced to the seed architecture rule.
+
+### The bug
+
+`rules.ts` seed wave was building:
+
+```ts
+const arch = [d, Math.max(d, 32), k]
+```
+
+For iris (D=4), digits (D=64), wine (D=13) — all benchmark datasets — this produced a reasonable hidden layer of 32-64 units. But for Fashion-MNIST (D=784), it produced **[784, 784, 10]** — a 784-wide hidden matching the input dimension. That's **622k weights in the first layer**, and the observed training time matches: 8000 samples × 784 × 784 ≈ 5B ops forward × 400 epochs × 2 configs = ~15-20 minutes per epoch pair.
+
+The rule was written assuming D would always be small. Fashion-MNIST was the first dataset where D × D became pathological.
+
+### Fixed
+
+```ts
+const hidden = Math.min(128, Math.max(d, 32))
+const arch = [d, hidden, k]
+```
+
+Hidden layer is at least 32 (for tiny-D tasks like iris), at most 128. For Fashion-MNIST: **[784, 128, 10]** instead of [784, 784, 10]:
+
+- **Weights**: 101k vs 622k (~6× fewer)
+- **Per-epoch compute**: ~800M ops vs ~5B ops (~6× less)
+- **Expected per-epoch wall-clock on user's hardware**: ~2 sec vs ~14 sec
+- **Expected accuracy**: ~88% on Fashion-MNIST (the standard MLP baseline) vs ~88% (same; depth/width beyond 128 doesn't meaningfully help on a plain MLP)
+
+Applied to `shallowerArch` / `widerArch` fallback paths too for consistency.
+
+### Also fixed
+
+- `handleInspect` (the HTTP `/api/tasks/:id/inspect` endpoint) now returns `training_budget`. Previously only the MCP `inspect_data` tool included it — the dashboard couldn't display it. Now fully wired through.
+
+### Important note for running trainings
+
+**Already-running trainings use the old [784, 784, 10] architecture and won't benefit from this fix.** To apply:
+```
+mcp__neuron__cancel_auto_train({task_id: "fashion-mnist"})
+# then ml-labs update, then re-run auto_train
+```
+
+### Bench
+
+All 5 datasets still pass. No shifts — iris/wine/breast-cancer/digits/housing all have small D so the new cap never engages.
+
+### Non-changes
+
+- No MCP surface changes. No rs-tensor changes.
+- Tournament mode, sweep mode, memory guardrails all unchanged.
+- For Fashion-MNIST at the new architecture, memory budget drops from ~1.6GB to ~400MB (fewer weights in flight). Budget level stays "heavy" for N=60k, but "advisory" for the N=10k subset the user is running — so sweep runs concurrently now.
+
+### Upgrade
+
+```bash
+ml-labs update
+ml-labs --version   # prints 1.8.2
+```
+
+---
+
 ## v1.8.1 — 2026-04-22
 
 **Fixes auto_train being way slower than it needs to be on small-to-medium datasets.** A user running an 8k-row auto_train pointed out it was taking forever. Investigation turned up two compounding issues, both on me:

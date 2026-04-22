@@ -37,7 +37,7 @@ if (reaped.runsReaped > 0 || reaped.autoRunsReaped > 0) {
 
 const PORT = parseInt(process.env.NEURON_API_PORT ?? "2626")
 const DIST = process.env.DASHBOARD_DIST ?? join(import.meta.dir, "../../dashboard/dist")
-const VERSION = "1.8.1"
+const VERSION = "1.8.2"
 const DB_DIR = (() => {
   const db = process.env.NEURON_DB
   return db ? join(db, "..") : join(import.meta.dir, "../../data")
@@ -493,6 +493,15 @@ async function handleInspect(taskId: string): Promise<Response> {
     if (vals.length > 1) imbalanceRatio = +(Math.max(...vals) / Math.min(...vals)).toFixed(2)
   }
 
+  const { estimateTrainingBudget } = await import("./core/memory_budget")
+  const { countSamplesByTaskAndSplit } = await import("./core/db/samples")
+  const N_train = countSamplesByTaskAndSplit(taskId, "train") || N
+  const K = task.kind === "regression" ? 1 : (task.labels?.length ?? Object.keys(counts).length)
+  const training_budget = estimateTrainingBudget({
+    N: N_train, D, K,
+    kind: task.kind === "regression" ? "regression" : "classification",
+  })
+
   return json({
     ok: true, task_id: taskId, kind: task.kind, total: N, splits,
     features: { count: D, names: featureNames, stats: featureStats },
@@ -500,6 +509,7 @@ async function handleInspect(taskId: string): Promise<Response> {
     imbalance_ratio: imbalanceRatio,
     normalize_enabled: task.normalize,
     warnings,
+    training_budget,
   })
 }
 
