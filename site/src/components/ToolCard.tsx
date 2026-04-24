@@ -11,10 +11,13 @@ const categoryColor: Record<string, string> = {
   Task: "chip-cyan",
   Data: "chip-purple",
   Training: "chip-orange",
+  Validation: "chip-green",
+  Auto: "chip-pink",
   Inspection: "chip-green",
+  Monitoring: "chip-orange",
   Model: "chip-pink",
   Inference: "chip-cyan",
-  Auto: "chip-pink",
+  LLM: "chip-purple",
 }
 
 export function ToolCard({ tool, index }: { tool: ToolEntry; index: number }) {

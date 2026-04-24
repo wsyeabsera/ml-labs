@@ -15,6 +15,7 @@ import { StackDiagram, type StackLayer } from "../components/StackDiagram"
 import { InfoCard } from "../components/InfoCard"
 import { CodeBlock } from "../components/CodeBlock"
 import { DataFlow } from "../components/DataFlow"
+import { Table } from "../components/Table"
 
 const stack: StackLayer[] = [
   {
@@ -27,7 +28,7 @@ const stack: StackLayer[] = [
   {
     label: "Neuron MCP server",
     tag: "stdio · TypeScript · Bun",
-    desc: "30 tools. Owns the task/sample/run model, the sweep orchestrator, the registry, and the auto-train coordinator.",
+    desc: "43 tools. Owns tasks, samples, runs, sweeps, the registry, auto-train controller, memory-budget guardrails, calibration, drift, and LLaMA inference.",
     icon: Beaker,
     accent: "purple",
   },
@@ -114,7 +115,8 @@ export function Architecture() {
             </p>
             <ul className="text-xs font-mono text-lab-muted list-disc list-inside space-y-0.5">
               <li>orchestrator: core/auto/coordinator.ts</li>
-              <li>11 tools on allowlist</li>
+              <li>deterministic TS orchestrator</li>
+              <li>Claude planners (rules/Claude/TPE/tournament)</li>
               <li>decision log: auto_runs.decision_log</li>
             </ul>
           </InfoCard>
@@ -134,10 +136,11 @@ export function Architecture() {
             <code className="text-purple-neon">journal_mode = WAL</code> is the cheapest multi-reader
             setup that exists, and it is embedded — no daemon to manage.
           </InfoCard>
-          <InfoCard icon={Zap} title="Sub-agents as control flow" accent="green">
-            The coordinator isn't a hard-coded TypeScript state machine. It's a Claude sub-agent
-            with an allowlist of 11 tools and a prompt that explains the goal. Decisions like
-            "should I retry with a deeper head?" are judgment calls — Claude does those well.
+          <InfoCard icon={Zap} title="Claude for judgment, TS for orchestration" accent="green">
+            The coordinator is a deterministic TypeScript controller that owns the budget, the
+            registry, and the DB writes. Claude gets called only for the judgment calls — planning
+            the next wave of hyperparameters, diagnosing a failed run. This replaced an earlier
+            all-Claude coordinator in v1.5 because the all-Claude version was not reproducible.
           </InfoCard>
           <InfoCard icon={FileCode} title="neuron.config.ts: the featurize seam" accent="pink">
             Every project picks its own feature transform in a single <code>neuron.config.ts</code>.
@@ -151,18 +154,59 @@ export function Architecture() {
         <CodeBlock
           lang="sql"
           title="data/neuron.db (simplified)"
-          code={`CREATE TABLE tasks        (id TEXT PK, kind TEXT, feature_shape JSON, ...);
-CREATE TABLE samples      (id INT PK, task_id, label, features JSON, raw BLOB, ...);
-CREATE TABLE runs         (id INT PK, task_id, status, hyperparams JSON, weights JSON,
-                           accuracy REAL, loss_history JSON, run_progress REAL, ...);
-CREATE TABLE models       (task_id PK, run_id, registered_at);
-CREATE TABLE auto_runs    (id INT PK, task_id, status, decision_log JSON,
-                           waves_used, winner_run_id, verdict, ...);`}
+          code={`-- Core
+CREATE TABLE tasks          (id TEXT PK, kind TEXT, feature_shape JSON, labels JSON, normalize BOOL, …);
+CREATE TABLE samples        (id INT PK, task_id, label, features JSON, raw BLOB, split TEXT, …);
+CREATE TABLE runs           (id INT PK, task_id, status, hyperparams JSON, weights JSON,
+                             accuracy REAL, val_accuracy REAL, loss_history JSON,
+                             calibration_temperature REAL, cv_fold_id INT, cv_parent_id INT, …);
+CREATE TABLE models         (task_id PK, run_id, registered_at);
+
+-- Auto-train (Phase 5+ / 6+ / 11.7)
+CREATE TABLE auto_runs      (id INT PK, task_id, status, decision_log JSON,
+                             waves_used, winner_run_id, verdict, verdict_json JSON, …);
+CREATE TABLE auto_patterns  (id INT PK, task_fingerprint TEXT, dataset_shape JSON,
+                             best_config JSON, best_metric REAL, metric_name TEXT);
+CREATE TABLE auto_rule_stats (fingerprint, rule_name, fired_count, produced_winner_count);
+
+-- Observability (v1.0.0+)
+CREATE TABLE events         (id INT PK, ts INT, source TEXT, kind TEXT, task_id, run_id, payload JSON);
+CREATE TABLE predictions    (id INT PK, ts INT, task_id, run_id, features JSON, label TEXT, confidence REAL);
+
+-- Production reliability (v1.1.0)
+CREATE TABLE shadow_models  (task_id PK, shadow_run_id, attached_at, agreement_rate REAL);
+
+-- Batch prediction tracking (v1.4.0)
+CREATE TABLE batch_predictions (id INT PK, task_id, path, status, total, completed, accuracy, …);`}
         />
+
+        <Table
+          caption="What each table is for"
+          columns={[
+            { key: "t",    header: "Table",            mono: true, accent: "cyan" },
+            { key: "for",  header: "Used by" },
+          ]}
+          rows={[
+            { t: "tasks",            for: "create_task, list_tasks. Schema for the ML problem." },
+            { t: "samples",          for: "Every data ingestion tool (load_csv, collect, load_images)." },
+            { t: "runs",             for: "train, cv_train. Everything a completed training produces." },
+            { t: "models",           for: "register_model, predict. One row per task, points to the active run." },
+            { t: "auto_runs",        for: "auto_train controller — decision_log + structured verdict." },
+            { t: "auto_patterns",    for: "Cross-task warm-start memory. Fingerprint → best config." },
+            { t: "auto_rule_stats",  for: "Which rules actually produced winners. Fed back to the Claude planner as context." },
+            { t: "events",           for: "The events bus. Every state change writes here; SSE stream reads from here." },
+            { t: "predictions",      for: "Every predict / batch_predict call. Source data for drift_check." },
+            { t: "shadow_models",    for: "Shadow-model A/B testing — Phase 8.5." },
+            { t: "batch_predictions", for: "Tracking async batch_predict jobs from the dashboard." },
+          ]}
+        />
+
         <p>
           Because <code>weights</code> is just JSON, you can export, diff, and import any run with{" "}
           <code>jq</code>. <code>decision_log</code> is append-only JSON so a second terminal can
-          poll <code>get_auto_status</code> and see the coordinator narrate its own reasoning.
+          poll <code>get_auto_status</code> and see the controller narrate its reasoning. See the
+          <a href="/observability" className="text-cyan-neon hover:underline"> Observability</a> page
+          for the full story of events + decision_log.
         </p>
       </Section>
     </div>

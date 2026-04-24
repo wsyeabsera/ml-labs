@@ -65,7 +65,7 @@ export function Home() {
               to="/tool-reference"
               className="inline-flex items-center gap-2 px-5 py-3 rounded-lg text-lab-text/70 hover:text-cyan-neon transition-colors"
             >
-              <Terminal className="w-4 h-4" /> 34 MCP tools <ArrowRight className="w-3.5 h-3.5" />
+              <Terminal className="w-4 h-4" /> 43 MCP tools <ArrowRight className="w-3.5 h-3.5" />
             </Link>
           </div>
         </motion.div>
@@ -73,7 +73,7 @@ export function Home() {
 
       <StatRow
         stats={[
-          { value: "34", label: "MCP tools", accent: "cyan" },
+          { value: "43", label: "MCP tools", accent: "cyan" },
           { value: "3", label: "layer stack", accent: "purple" },
           { value: "SQLite", label: "zero ops", accent: "green" },
           { value: "100%", label: "local weights", accent: "orange" },
@@ -101,8 +101,8 @@ export function Home() {
             never write gradients by hand.
           </InfoCard>
           <InfoCard icon={Beaker} title="Neuron MCP" accent="purple" delay={0.08}>
-            34 tools for training, sweeps, diagnosis, observability, regression, and cross-project
-            model sharing. The ML product layer.
+            43 tools for training, sweeps, diagnosis, calibration, drift, active learning, LLM
+            inference, and cross-project model sharing. The ML product layer.
           </InfoCard>
           <InfoCard icon={Workflow} title="Claude Code" accent="pink" delay={0.16}>
             The brain. "Train a good model for iris" triggers a coordinator sub-agent that plans,
@@ -144,33 +144,45 @@ export function Home() {
         <div className="text-xs font-mono uppercase tracking-[0.2em] text-orange-neon mb-3">
           Things that are already working
         </div>
-        <h2 className="text-3xl md:text-4xl font-bold mb-6">Five superpowers.</h2>
+        <h2 className="text-3xl md:text-4xl font-bold mb-6">Eight superpowers.</h2>
 
         <div className="grid md:grid-cols-2 gap-4">
-          <InfoCard icon={Zap} title="Parallel sweeps" accent="cyan" delay={0}>
-            <code className="text-cyan-neon">run_sweep</code> spawns N Agent SDK sub-agents, each
-            running one config. Wall clock ≈ one run.
+          <InfoCard icon={Sparkles} title="Auto-train with intent" accent="purple" delay={0}>
+            Deterministic TypeScript controller, Claude planners for judgment calls. Preflight,
+            warm-start from past wins, wave loop with TPE or tournament, diagnose, promote,
+            calibrate, publish — all from one <code>auto_train</code> call.
           </InfoCard>
-          <InfoCard icon={Sparkles} title="Auto-train coordinator" accent="purple" delay={0.06}>
-            A Claude sub-agent with 11 tools and a decision log. It sweeps, narrows, diagnoses, and
-            knows when to quit.
+          <InfoCard icon={Zap} title="Adaptive sweeps" accent="cyan" delay={0.06}>
+            <code className="text-cyan-neon">run_sweep</code> picks sub-agent parallelism when it's
+            safe, in-process sequential when it isn't. No more laptop-crashing Fashion-MNIST.
           </InfoCard>
-          <InfoCard icon={Package} title="Cross-project registry" accent="pink" delay={0.12}>
-            <code className="text-pink-neon">publish_model</code> pushes to{" "}
-            <code>~/.neuron/registry/</code>. Any other project can <code>import_model</code> by
-            URI.
+          <InfoCard icon={Cpu} title="Memory guardrail" accent="orange" delay={0.12}>
+            Every workload is measured against a safe/advisory/heavy/refuse band before training
+            starts. <code>dry_run</code> to preview, <code>force</code> only when you insist.
           </InfoCard>
-          <InfoCard icon={GitBranch} title="Active learning" accent="green" delay={0.18}>
-            <code className="text-green-neon">suggest_samples</code> points at the exact rows your
-            model is confused about. Collect more of <em>those</em>.
+          <InfoCard icon={GitBranch} title="Active learning loop" accent="green" delay={0.18}>
+            <code className="text-green-neon">suggest_samples</code> surfaces uncertain rows; pair
+            with <code>auto_collect</code> and a user-supplied callback to have auto_train loop back
+            and retrain after new data arrives.
           </InfoCard>
-          <InfoCard icon={Workflow} title="Cross-session predict" accent="orange" delay={0.24}>
-            Kill the server, come back tomorrow,{" "}
-            <code className="text-orange-neon">predict</code> still works. Weights restore lazily.
+          <InfoCard icon={Workflow} title="Validation toolkit" accent="pink" delay={0.24}>
+            <code className="text-pink-neon">cv_train</code> for k-fold,{" "}
+            <code className="text-pink-neon">calibrate</code> for temperature-scaled confidences,{" "}
+            <code className="text-pink-neon">drift_check</code> for PSI/KS monitoring.
           </InfoCard>
-          <InfoCard icon={Terminal} title="One config away" accent="cyan" delay={0.3}>
-            Plug it into any Claude Code project via <code>.mcp.json</code>. No cloud auth, no web
-            stack.
+          <InfoCard icon={Package} title="Cross-project registry" accent="purple" delay={0.3}>
+            <code className="text-purple-neon">publish_model</code> pushes to{" "}
+            <code>~/.neuron/registry/</code>. Any other project can <code>import_model</code> by URI
+            or bundle path. Adapter hashes prevent featurize mismatches.
+          </InfoCard>
+          <InfoCard icon={Terminal} title="Three UIs, one DB" accent="cyan" delay={0.36}>
+            Claude Code (MCP), HTTP dashboard on :2626, and a 5-screen TUI — all reading and writing
+            the same SQLite. Use whichever fits the moment.
+          </InfoCard>
+          <InfoCard icon={Beaker} title="LLM playground" accent="green" delay={0.42}>
+            <code className="text-green-neon">llm_load</code> + <code>llm_generate</code> — CPU
+            LLaMA inference on GGUF files. Small models, local-only, ~10 tok/s on a 1B. Good for
+            pipeline steps, not production chat.
           </InfoCard>
         </div>
       </section>

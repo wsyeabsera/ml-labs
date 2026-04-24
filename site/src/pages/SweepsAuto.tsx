@@ -1,9 +1,13 @@
-import { Zap, Brain, GitBranch, Gauge, Layers, ListTree, Radar, Workflow } from "lucide-react"
+import {
+  Zap, Brain, Gauge, GitBranch, BookOpen, Target, ArrowRight,
+} from "lucide-react"
+import { Link } from "react-router-dom"
 import { PageHeader } from "../components/PageHeader"
 import { Section } from "../components/Section"
 import { CodeBlock } from "../components/CodeBlock"
 import { InfoCard } from "../components/InfoCard"
-import { Timeline } from "../components/Timeline"
+import { Callout } from "../components/Callout"
+import { AsciiDiagram } from "../components/AsciiDiagram"
 
 export function SweepsAuto() {
   return (
@@ -11,231 +15,262 @@ export function SweepsAuto() {
       <PageHeader
         eyebrow="Parallel training, adaptive pipelines"
         accent="orange"
-        title={<>Ship <span className="gradient-text">three configs</span> in the time of one.</>}
-        lede="run_sweep fans out configs across Agent SDK sub-agents. auto_train wraps the whole pipeline in a coordinator that can actually decide what to do next."
+        title={<>Sweeps & <span className="gradient-text">auto-train</span>.</>}
+        lede="run_sweep trains many configs. auto_train goes further — it picks the configs, runs the sweeps, diagnoses failures, promotes the winner, and calibrates. This page is the orientation. The deep dives are linked at the end of each section."
       />
 
-      <Section eyebrow="run_sweep" title="Parallel grid search, the short version.">
-        <p>
-          Give it a list of configs (or a <code>search</code> object that expands into a grid).
-          Neuron spawns one Claude sub-agent per config. Each sub-agent has exactly one tool on
-          its allowlist — <code>mcp__neuron__train</code> — and one job: run that config, report
-          back JSON.
-        </p>
+      <Section eyebrow="The big idea" title="Sweeps vs auto-train.">
+        <div className="grid md:grid-cols-2 gap-4">
+          <InfoCard icon={Zap} title="run_sweep" accent="cyan">
+            <p className="mb-2">
+              You provide <em>the configs</em>. ML-Labs runs them all and reports which one won.
+              Useful when you already know what hyperparameters to try.
+            </p>
+            <p>
+              Two execution strategies: <strong>in-process sequential</strong> (low memory, slow) and{" "}
+              <strong>parallel sub-agents</strong> (high memory, ~3× faster on safe workloads). See{" "}
+              <Link to="/sweep-modes" className="text-cyan-neon hover:underline">Sweep Modes</Link>.
+            </p>
+          </InfoCard>
+          <InfoCard icon={Brain} title="auto_train" accent="purple">
+            <p className="mb-2">
+              You state <em>a goal</em> (&ldquo;accuracy ≥ 0.9, budget 2 min&rdquo;). ML-Labs picks
+              the configs itself, runs them, measures, refines, and delivers a trained + calibrated
+              + registered model — or an actionable verdict if it can't get there.
+            </p>
+            <p>
+              Deterministic TypeScript controller + Claude planners for judgment calls. Deep dive:{" "}
+              <Link to="/auto-train-deep-dive" className="text-purple-neon hover:underline">Auto-Train Deep Dive</Link>.
+            </p>
+          </InfoCard>
+        </div>
+      </Section>
 
+      <Section eyebrow="run_sweep in 30 seconds" title="Known configs, ranked.">
         <CodeBlock
           lang="typescript"
-          title="sweep a small grid"
-          code={`await mcp__neuron__run_sweep({
+          title="explicit configs"
+          code={`run_sweep({
   task_id: "iris",
-  search: {
-    lr: [0.01, 0.05, 0.1],
-    epochs: [500, 1000],
-  },
+  configs: [
+    { lr: 0.005, epochs: 500 },
+    { lr: 0.01,  epochs: 500 },
+    { lr: 0.002, epochs: 1000 },
+  ],
   concurrency: 3,
   promote_winner: true,
 })
-// → 6 runs. Wall clock ≈ time of the slowest single run.
-// → The winning run_id is auto-promoted to the active model.`}
+// → 3 runs. Highest-accuracy one is auto-registered.`}
         />
-
-        <div className="grid md:grid-cols-3 gap-4 mt-6">
-          <InfoCard icon={Zap} title="Agent SDK fan-out" accent="cyan">
-            Each sub-agent boots its own neuron-mcp subprocess. They share the same SQLite DB via
-            WAL, so runs show up live in <code>list_runs</code>.
-          </InfoCard>
-          <InfoCard icon={Gauge} title="Wave mode" accent="purple">
-            Pass <code>wave_size=4</code> to run configs in sequential chunks of 4. Useful when
-            memory or an external API limits how many can go at once.
-          </InfoCard>
-          <InfoCard icon={GitBranch} title="Winner auto-promote" accent="green">
-            <code>promote_winner: true</code> calls <code>register_model</code> on the highest
-            accuracy run before returning. Safety-net off by default.
-          </InfoCard>
-        </div>
-      </Section>
-
-      <Section eyebrow="auto_train" title="Now let Claude drive.">
-        <p>
-          <code>auto_train</code> is the headline tool. It spawns one coordinator sub-agent with a
-          curated 11-tool allowlist and a state-machine prompt. The coordinator decides how many
-          waves to run, what to narrow on, and whether to stop early. It writes a decision log as
-          it goes. You can <code>get_auto_status</code> from a second Claude Code session and
-          watch it think.
-        </p>
-
         <CodeBlock
           lang="typescript"
-          title="one-line everything"
-          code={`const result = await mcp__neuron__auto_train({
+          title="grid search"
+          code={`run_sweep({
   task_id: "iris",
-  accuracy_target: 0.95,
-  max_waves: 2,
-  budget_s: 120,
-  promote: true,
+  search: {
+    lr: [0.001, 0.005, 0.01],
+    epochs: [500, 1000],
+    head_arch: [[4, 32, 3], [4, 64, 3]],
+  },
+  wave_size: 3,   // run 3 configs, wait, run next 3
+})
+// → Cartesian product: 3 × 2 × 2 = 12 configs, in 4 waves of 3.`}
+        />
+
+        <Callout kind="learn" title="&ldquo;concurrency&rdquo; vs &ldquo;wave_size&rdquo;">
+          <strong>concurrency</strong> — how many configs run in <em>parallel</em> at any moment
+          (sub-agents mode only). <strong>wave_size</strong> — how many configs in each sequential
+          batch before waiting for the batch to finish. You almost always want wave_size on large
+          grids; it prevents 20 sub-agents from fighting for CPU at once.
+        </Callout>
+      </Section>
+
+      <Section eyebrow="auto_train in 30 seconds" title="One tool, the whole pipeline.">
+        <CodeBlock
+          lang="typescript"
+          title="the happy path"
+          code={`auto_train({
+  task_id: "iris",
+  accuracy_target: 0.95,      // optional, default 0.9
+  max_waves: 2,               // optional, default 2
+  budget_s: 120,              // optional, default 180
+  promote: true,              // optional, default true
 })
 
-// result = {
-//   ok: true,
-//   auto_run_id: 7,
-//   status: "completed",
-//   run_id: 42,
-//   accuracy: 0.973,
-//   waves_used: 1,
-//   decision_log: [
-//     { stage: "preflight", note: "ready, 150 samples, balanced" },
-//     { stage: "suggest",   note: "lr=0.05, epochs=800, head=[4,32,3]" },
-//     { stage: "sweep_wave_1", payload: { configs: 3 } },
-//     { stage: "evaluate_wave_1", note: "best run 42 @ 0.973" },
-//     { stage: "promote", note: "registered run 42" },
-//   ],
-//   verdict: "Promoted run 42 at 97.3%. Target met in one wave.",
-// }`}
+// Under the hood:
+//   1. estimateTrainingBudget  (memory guardrail)
+//   2. computeDataHealth       (preflight)
+//   3. lookupBestPattern       (warm-start from past wins)
+//   4. wave loop: plan → sweep → evaluate → diagnose → maybe stop
+//   5. (optional) auto_collect rounds
+//   6. winner selection (val-aware, overfit-penalised)
+//   7. promote + calibrate + (optional) publish
+//   8. saveVerdictJson + reap orphans`}
         />
+
+        <AsciiDiagram title="auto_train data flow (high level)" accent="purple">
+{`                ┌──────────────────┐
+                │  auto_train()    │
+                └──────────────────┘
+                        │
+         ┌──────────────┼──────────────┐
+         ▼              ▼              ▼
+    memory check    data audit    pattern memory
+         │              │              │
+         └──────┬───────┴──────┬───────┘
+                ▼              ▼
+           ┌──────────────────────┐
+           │   wave loop          │──── target hit ───────────┐
+           │  plan (rules/Claude  │                            │
+           │  /TPE/tournament)    │──── budget / max_waves ──┐ │
+           │    ↓                 │                          │ │
+           │  sweep (sub-agents   │                          │ │
+           │  or sequential)      │                          │ │
+           │    ↓                 │                          │ │
+           │  signals + diagnose  │                          │ │
+           └──────────────────────┘                          │ │
+                         │                                   │ │
+                         └─── loop ──────────────────────────┘ │
+                                                               │
+                  ┌────────────────────────────────────────────┘
+                  ▼
+            ┌──────────────────┐
+            │ winner selection │  (val-aware + overfit penalty)
+            └──────────────────┘
+                  │
+                  ▼
+            ┌──────────────────┐
+            │ promote + calib  │  (+ optional publish)
+            └──────────────────┘
+                  │
+                  ▼
+            ┌──────────────────┐
+            │ structured       │
+            │ verdict + reap   │
+            └──────────────────┘`}
+        </AsciiDiagram>
+
+        <p>
+          This is a guided tour. For every node in the diagram, there's a corresponding deeper
+          explanation in the <Link to="/auto-train-deep-dive" className="text-purple-neon hover:underline">Auto-Train Deep Dive</Link>.
+        </p>
       </Section>
 
-      <Section eyebrow="The coordinator's brain" title="What the coordinator actually does.">
-        <Timeline
-          steps={[
-            {
-              step: "01",
-              title: "preflight_check",
-              body: (
-                <>
-                  If verdict is <code>not_ready</code>, log it and stop. No point sweeping over a
-                  dataset that can't be trained.
-                </>
-              ),
-              accent: "cyan",
-            },
-            {
-              step: "02",
-              title: "suggest_hyperparams",
-              body: "Seeds the first wave with a sensible (lr, epochs, head) triple.",
-              accent: "purple",
-            },
-            {
-              step: "03",
-              title: "run_sweep — wave 1",
-              body: (
-                <>
-                  Varies lr around the suggestion ([×0.5, ×1, ×2] clamped) and runs 3–4 configs in
-                  parallel. Logs with <code>stage=sweep_wave_1</code>.
-                </>
-              ),
-              accent: "green",
-            },
-            {
-              step: "04",
-              title: "evaluate + diagnose",
-              body: (
-                <>
-                  If the best run hits target, we're done. If diagnose says{" "}
-                  <code>severity=critical</code> and we have wave budget, move on.
-                </>
-              ),
-              accent: "orange",
-            },
-            {
-              step: "05",
-              title: "run_sweep — wave 2 (optional)",
-              body: "Narrow lr around the wave-1 winner, go deeper or wider on the head, more epochs.",
-              accent: "pink",
-            },
-            {
-              step: "06",
-              title: "suggest_samples (fallback)",
-              body: (
-                <>
-                  If we're still under target, the coordinator calls{" "}
-                  <code>suggest_samples</code> and returns a verdict that points at the data gaps —
-                  instead of claiming victory on a bad model.
-                </>
-              ),
-              accent: "cyan",
-            },
-            {
-              step: "07",
-              title: "promote + publish",
-              body: (
-                <>
-                  <code>register_model</code> flips the active model. If{" "}
-                  <code>publish_name</code> was passed, <code>publish_model</code> ships it to the
-                  registry.
-                </>
-              ),
-              accent: "green",
-            },
-          ]}
-        />
-      </Section>
-
-      <Section eyebrow="Why this isn't a hard-coded state machine" title="Sub-agent vs TS loop.">
+      <Section eyebrow="The flags that matter most" title="Knobs you'll actually use.">
         <div className="grid md:grid-cols-2 gap-4">
-          <InfoCard icon={Brain} title="Claude decides, not if/else" accent="purple">
-            "Should we retry because per-class accuracy is collapsing on one label?" That is not a
-            boolean. Diagnose gives severity; the coordinator interprets it. The judgment is the
-            feature.
+          <InfoCard icon={Target} title="accuracy_target" accent="cyan">
+            How high the best metric needs to go for auto_train to call it a win. Default 0.9. Hit it
+            early → stop. Miss it at max_waves → verdict is <code>no_improvement</code> with
+            actionable next_steps.
           </InfoCard>
-          <InfoCard icon={Radar} title="Tool allowlist = safety rails" accent="cyan">
-            The coordinator can't run Bash, can't write files, can't talk to the internet. Eleven
-            tools. <code>disallowedTools</code> explicitly names Bash/Read/Edit/Write/Glob/Grep.
+          <InfoCard icon={Gauge} title="budget_s" accent="orange">
+            Wall-clock budget in seconds (default 180). Hard-enforced via AbortController at{" "}
+            <code>budget_s × 1.1</code>. If the timer fires, <code>budget_exceeded</code> verdict.
           </InfoCard>
-          <InfoCard icon={ListTree} title="Decision log = debuggability" accent="green">
-            Every meaningful decision ends in <code>log_auto_note</code>. You get a timeline. You
-            can grep it. You can show it to a teammate.
+          <InfoCard icon={GitBranch} title="max_waves" accent="green">
+            Max refinement iterations (default 2). More = more chances to converge, but slower. The
+            controller also stops early if signals say it's plateaued.
           </InfoCard>
-          <InfoCard icon={Workflow} title="Budget is a soft deadline" accent="orange">
-            <code>budget_s</code> is checked at wave boundaries, not inside training. Worst-case
-            overrun = one wave. No cross-process kill required to ship v1.
+          <InfoCard icon={Brain} title="tournament" accent="purple">
+            Set <code>tournament: true</code> for hard problems. Each wave spawns 3 parallel Claude
+            planners with different strategies (aggressive / conservative / exploratory); proposals
+            are merged. Costs 3× per wave.
+          </InfoCard>
+          <InfoCard icon={BookOpen} title="dry_run" accent="pink">
+            <code>dry_run: true</code> returns the plan (memory budget, seed configs, ETA) WITHOUT
+            training. For heavy workloads, Claude is supposed to dry_run first, confirm with you,
+            then auto_train for real.
+          </InfoCard>
+          <InfoCard icon={Zap} title="force" accent="orange">
+            Required to run a <strong>refuse</strong>-level workload. Without it, auto_train refuses
+            and explains why. See <Link to="/memory-budget" className="text-orange-neon hover:underline">Memory Budget</Link>.
           </InfoCard>
         </div>
       </Section>
 
-      <Section eyebrow="Watching from another session" title="Live progress via get_auto_status.">
+      <Section eyebrow="Watching it run" title="get_auto_status.">
         <p>
-          Both <code>auto_train</code> and <code>run_sweep</code> persist state to SQLite. A second
-          Claude Code window can read that state via <code>get_auto_status</code> or{" "}
-          <code>get_run_status</code> — the decision log streams in as the coordinator thinks.
+          auto_train is fire-and-forget but very chatty. Call <code>get_auto_status(task_id)</code> or{" "}
+          <code>get_auto_status(auto_run_id)</code> from any Claude session — even a different
+          terminal — to see the controller's decision log. Every stage (preflight, warm_start,
+          sweep_wave_N_plan, sweep_wave_N_done, diagnose, winner_selection, promote, calibrate) emits
+          a structured entry you can read live.
         </p>
         <CodeBlock
-          lang="typescript"
-          code={`// session A, running:
-mcp__neuron__auto_train({ task_id: "iris" })
-
-// session B, a few seconds later:
-const status = await mcp__neuron__get_auto_status({ task_id: "iris" })
-// status.status        -> "running"
-// status.waves_used    -> 1
-// status.decision_log  -> [{stage:"preflight",...}, {stage:"suggest",...}, ...]`}
+          lang="bash"
+          title="from a second Claude session"
+          code={`> /neuron-ask get_auto_status for task iris
+# → stages with human notes, structured payloads, ETA`}
         />
+        <p>
+          The dashboard's <code>/auto-runs/:id</code> route renders the same data as a timeline.
+        </p>
       </Section>
 
-      <Section eyebrow="When to reach for which" title="A tiny decision table.">
-        <div className="lab-panel p-6">
-          <div className="grid md:grid-cols-3 gap-5 text-sm">
-            <div>
-              <div className="chip-cyan mb-3">train</div>
-              <p className="text-lab-text/80">
-                You know the hyperparams. You want one run. You're iterating on data and the model
-                architecture is stable.
-              </p>
-            </div>
-            <div>
-              <div className="chip-orange mb-3">run_sweep</div>
-              <p className="text-lab-text/80">
-                You have 3–9 candidate configs you want to compare. The grid is fixed. You want
-                wall-clock parallelism.
-              </p>
-            </div>
-            <div>
-              <div className="chip-purple mb-3">auto_train</div>
-              <p className="text-lab-text/80">
-                You said <em>"train a good model for X"</em> and want to walk away. You're okay
-                with 1–2 minutes of budget.
-              </p>
-            </div>
-          </div>
+      <Section eyebrow="What comes back" title="The verdict.">
+        <CodeBlock
+          lang="json"
+          title="auto_train result (success case)"
+          code={`{
+  "ok": true,
+  "auto_run_id": 7,
+  "status": "completed",
+  "run_id": 42,
+  "accuracy": 0.983,
+  "waves_used": 1,
+  "verdict": "accuracy=0.983 on run 42; 3 configs tried in 1 waves",
+  "verdict_json": {
+    "status": "completed",
+    "winner": {
+      "run_id": 42,
+      "metric_value": 0.983,
+      "metric_name": "accuracy",
+      "is_overfit": false,
+      "confidence": "high",
+      "config": { "lr": 0.005, "epochs": 500, ... }
+    },
+    "attempted": { "configs_tried": 3, "waves_used": 1, "wall_clock_s": 47 },
+    "data_issues": [],
+    "next_steps": [],
+    "summary": "target reached: accuracy=0.983 on run 42"
+  },
+  "wall_clock_s": 47
+}`}
+        />
+        <p>
+          Every other status — <code>no_improvement</code>, <code>budget_exceeded</code>,{" "}
+          <code>cancelled</code>, <code>data_issue</code>, <code>failed</code> — returns the same
+          shape, with <code>next_steps</code> spelling out what you can do about it. Full catalog in
+          the <Link to="/auto-train-deep-dive" className="text-purple-neon hover:underline">deep dive</Link>.
+        </p>
+      </Section>
+
+      <Section eyebrow="Where to go next" title="For deeper dives.">
+        <div className="grid md:grid-cols-2 gap-4">
+          <Link to="/auto-train-deep-dive" className="lab-panel p-5 hover:border-purple-neon/40 transition-colors group">
+            <Brain className="w-5 h-5 text-purple-neon mb-3" />
+            <div className="font-semibold text-lab-heading mb-1 group-hover:text-purple-neon transition-colors">Auto-Train Deep Dive</div>
+            <div className="text-sm text-lab-muted">Every step of the controller. Planner selection, pattern memory, verdicts, reaper.</div>
+            <ArrowRight className="w-4 h-4 text-lab-muted mt-3 group-hover:text-purple-neon transition-colors" />
+          </Link>
+          <Link to="/sweep-modes" className="lab-panel p-5 hover:border-cyan-neon/40 transition-colors group">
+            <Zap className="w-5 h-5 text-cyan-neon mb-3" />
+            <div className="font-semibold text-lab-heading mb-1 group-hover:text-cyan-neon transition-colors">Sweep Modes</div>
+            <div className="text-sm text-lab-muted">Sequential vs sub-agents, adaptive switch, NEURON_SWEEP_MODE.</div>
+            <ArrowRight className="w-4 h-4 text-lab-muted mt-3 group-hover:text-cyan-neon transition-colors" />
+          </Link>
+          <Link to="/memory-budget" className="lab-panel p-5 hover:border-orange-neon/40 transition-colors group">
+            <Gauge className="w-5 h-5 text-orange-neon mb-3" />
+            <div className="font-semibold text-lab-heading mb-1 group-hover:text-orange-neon transition-colors">Memory Budget</div>
+            <div className="text-sm text-lab-muted">Why some workloads are refused + how force / dry_run work.</div>
+            <ArrowRight className="w-4 h-4 text-lab-muted mt-3 group-hover:text-orange-neon transition-colors" />
+          </Link>
+          <Link to="/training-config" className="lab-panel p-5 hover:border-green-neon/40 transition-colors group">
+            <BookOpen className="w-5 h-5 text-green-neon mb-3" />
+            <div className="font-semibold text-lab-heading mb-1 group-hover:text-green-neon transition-colors">Training Configuration</div>
+            <div className="text-sm text-lab-muted">Every train arg: optimizer, schedule, regularisation, SWA.</div>
+            <ArrowRight className="w-4 h-4 text-lab-muted mt-3 group-hover:text-green-neon transition-colors" />
+          </Link>
         </div>
       </Section>
     </div>

@@ -4,11 +4,13 @@ import {
   Beaker, Layers, Workflow, Zap, Package, Rocket,
   BookMarked, Github, Sparkles, Download, Terminal,
   ScrollText, Menu, X,
+  Brain, Gauge, ShieldCheck, Activity, SlidersHorizontal,
+  Monitor, MessageSquare, Trophy,
 } from "lucide-react"
 import type { ReactNode } from "react"
 import { useState } from "react"
 
-const VERSION = "0.2.0"
+const VERSION = "1.10.1"
 const GITHUB = "https://github.com/wsyeabsera/ml-labs"
 
 const navSections = [
@@ -31,13 +33,34 @@ const navSections = [
     ],
   },
   {
+    label: "Deep Dives",
+    items: [
+      { to: "/auto-train-deep-dive", label: "Auto-Train Deep Dive", icon: Brain },
+      { to: "/sweep-modes", label: "Sweep Modes", icon: Zap },
+      { to: "/memory-budget", label: "Memory Budget", icon: Gauge },
+      { to: "/validation", label: "Validation & Reliability", icon: ShieldCheck },
+      { to: "/training-config", label: "Training Config", icon: SlidersHorizontal },
+      { to: "/observability", label: "Events & Observability", icon: Activity },
+    ],
+  },
+  {
+    label: "Surfaces",
+    items: [
+      { to: "/dashboard", label: "HTTP Dashboard", icon: Monitor },
+      { to: "/tui", label: "TUI", icon: Terminal },
+      { to: "/llm", label: "LLM / GGUF", icon: MessageSquare },
+    ],
+  },
+  {
     label: "Reference",
     items: [
       { to: "/tool-reference", label: "Tool Reference", icon: BookMarked },
+      { to: "/benchmarks", label: "Benchmarks", icon: Trophy },
       { to: "/changelog", label: "Changelog", icon: ScrollText },
     ],
   },
 ]
+
 
 function NavItem({ to, label, icon: Icon }: { to: string; label: string; icon: typeof Sparkles }) {
   return (

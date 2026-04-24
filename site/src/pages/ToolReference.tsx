@@ -5,7 +5,19 @@ import { tools } from "../data/tools"
 import { Search } from "lucide-react"
 import { motion } from "framer-motion"
 
-const categories = ["All", "Task", "Data", "Training", "Auto", "Inspection", "Model", "Inference"]
+const categories = [
+  "All",
+  "Task",
+  "Data",
+  "Training",
+  "Validation",
+  "Auto",
+  "Inspection",
+  "Monitoring",
+  "Model",
+  "Inference",
+  "LLM",
+]
 
 export function ToolReference() {
   const [q, setQ] = useState("")

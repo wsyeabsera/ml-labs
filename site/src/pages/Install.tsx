@@ -1,4 +1,4 @@
-import { Download, FolderGit2, Terminal, CheckCircle, AlertCircle, RefreshCw } from "lucide-react"
+import { FolderGit2, Terminal, CheckCircle, AlertCircle, RefreshCw, Monitor, BookOpen, Package } from "lucide-react"
 import { PageHeader } from "../components/PageHeader"
 import { Section } from "../components/Section"
 import { CodeBlock } from "../components/CodeBlock"
@@ -96,6 +96,37 @@ exec bun run "$HOME/.ml-labs/cli/index.ts" "$@"`}
         </div>
       </Section>
 
+      <Section eyebrow="What ml-labs can do" title="The five commands.">
+        <div className="grid md:grid-cols-2 gap-4">
+          <InfoCard icon={Package} title="ml-labs init [name]" accent="cyan">
+            Scaffold a fresh project with <code>.mcp.json</code>, <code>neuron.config.ts</code>, 9
+            slash commands under <code>.claude/</code>, a README, and two example CSVs (iris,
+            housing). Pass a name to create a new directory; pass <code>.</code> to add ML-Labs to
+            the current folder.
+          </InfoCard>
+          <InfoCard icon={RefreshCw} title="ml-labs update" accent="green">
+            Sync <code>~/.ml-labs/</code> to the latest <code>origin/main</code>. Pulls in new MCP
+            tools, skills, and docs for every project on your machine at once.
+          </InfoCard>
+          <InfoCard icon={Monitor} title="ml-labs dashboard" accent="purple">
+            Start the HTTP dashboard on <code>localhost:2626</code> and open your browser. Live ETA,
+            run detail, auto-run decision logs, drift reports, LLM playground. See the{" "}
+            <a href="/dashboard" className="text-purple-neon hover:underline">Dashboard</a> page.
+          </InfoCard>
+          <InfoCard icon={BookOpen} title="ml-labs docs" accent="orange">
+            Serve these docs locally on <code>localhost:5273</code>. Static bundle, no network
+            required once installed.
+          </InfoCard>
+          <InfoCard icon={Terminal} title="neuron-tui" accent="pink">
+            5-screen terminal UI (Dashboard, Dataset, Train, Runs, Predict) for doing everything
+            without a browser. See the <a href="/tui" className="text-pink-neon hover:underline">TUI</a> page.
+          </InfoCard>
+          <InfoCard icon={CheckCircle} title="ml-labs --version" accent="cyan">
+            Print the installed version. <code>ml-labs --help</code> lists every command.
+          </InfoCard>
+        </div>
+      </Section>
+
       <Section eyebrow="Updating" title="Stay current.">
         <p>
           Any time you want the latest Neuron tools, docs, or CLI fixes — one command. It
@@ -108,7 +139,9 @@ exec bun run "$HOME/.ml-labs/cli/index.ts" "$@"`}
             <ol className="text-xs space-y-1 list-decimal list-inside text-lab-muted">
               <li><code className="text-lab-text">git fetch origin</code></li>
               <li><code className="text-lab-text">git reset --hard origin/main</code></li>
-              <li><code className="text-lab-text">bun install</code> in neuron/</li>
+              <li><code className="text-lab-text">bun install</code> in neuron/, cli/, site/</li>
+              <li>Rebuild docs site</li>
+              <li>Re-copy skills so every existing project gets new slash commands</li>
             </ol>
           </InfoCard>
           <InfoCard icon={AlertCircle} title="Local changes in ~/.ml-labs/" accent="orange">

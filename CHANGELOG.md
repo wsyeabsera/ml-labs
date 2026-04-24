@@ -4,6 +4,58 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v1.10.1 — 2026-04-24
+
+**Docs refresh.** The docs site was stuck reporting ~34 MCP tools, 11-coordinator-tool allowlists, and stopped its changelog at v0.2.1. This release catches it up to v1.10 reality — 20 pages total, 10 of them new — and replaces the actively-wrong sections.
+
+### Added — 10 new doc pages
+
+- **Memory Budget & Guardrails** — the `safe/advisory/heavy/refuse` estimator, the `training_budget` payload, `force: true`, `dry_run: true`, the preflight gate that keeps 8GB laptops alive.
+- **Auto-Train Deep Dive** — full lifecycle (budget → health → warm-start → wave loop → promote → calibrate → reap). Covers the rules / Claude / TPE / tournament planners, pattern memory, rule-stats feedback, auto_collect, structured verdicts, and every stage in `decision_log`.
+- **Sweep Modes** — in-process sequential (v1.7.0+ default) vs parallel sub-agents vs adaptive. Decision matrix by memory budget, `NEURON_SWEEP_MODE` semantics.
+- **Validation & Reliability** — `cv_train`, `calibrate` (+ reliability diagram), `drift_check` (PSI / KS), `data_audit`. Recipes for when to run each.
+- **LLM / GGUF Inference** — `llm_load`, `llm_generate`, `llm_inspect`. Sampling params, perf expectations (5-10 tok/s on a 1B), pipeline use cases.
+- **HTTP Dashboard** — routes, `/api/*` surface, the SSE event stream, the standout widgets (ActiveRunCard, decision-log timeline, activity feed).
+- **TUI Reference** — the 5-screen Ink TUI, keyboard shortcuts, when to reach for it.
+- **Training Configuration Reference** — every `train` argument: optimizer, activation, lr_schedule, loss, batch_size, weight_decay, grad_clip, early_stop_patience, label_smoothing, SWA, seed. Four presets (minimal tabular, hard-problem MLP, overfitting-prone, reproducibility).
+- **Events & Observability** — the `events` table, every `kind` it emits, the SSE stream, `auto_runs.decision_log` stages, how `get_auto_status` / `get_run_status` work.
+- **Benchmarks** — the 5-dataset bench suite (iris, wine, breast-cancer, housing, digits), determinism mode, pass / regress rules, how to bless a new baseline.
+
+### Added — 3 new reusable docs components
+
+- `Table` — typed columns + rows, mono / accented headers, captions. Used heavily in the new reference tables.
+- `Callout` — note / warn / tip / success / learn variants. "For newcomers" explanations, hazards, pro tips.
+- `AsciiDiagram` — monospace flow / decision-tree diagrams (auto_train lifecycle, planner selection, preflight gate, adaptive sweep).
+
+### Updated — existing pages
+
+- **Home** — 34 → 43 tools, 5 → 8 superpowers, removed 11-tool coordinator claim, replaced with the TS controller + Claude planner description.
+- **Install** — added the `ml-labs dashboard` / `ml-labs docs` / `ml-labs --version` commands, `neuron-tui`, refreshed what `ml-labs update` does (skills copy, docs rebuild).
+- **QuickStart** — 8 → 9 slash commands, replaced the stale `e2e_phase5.ts` verify step with `bun run ci` and `bun run bench:fast`.
+- **Architecture** — 30 → 43 tools, "11-tool coordinator" → "deterministic TS orchestrator + Claude planners". Added every post-v0.2 table to the DB schema (auto_patterns, auto_rule_stats, events, predictions, shadow_models, batch_predictions) with a per-table "used by" reference.
+- **Training Flow** — 7 → 9 steps. Added the val-split evaluation step, cv_train / calibrate / drift_check as post-training steps, updated `suggest_hyperparams` output to the modern shape, noted the v1.7.1 streaming ingestion fix and the v1.10.0 val-accuracy wiring.
+- **Sweeps & Auto-Train** — rewrote the actively-wrong bits. The page no longer claims sub-agent sweep is the default. Now an orientation page with pointers to the Auto-Train Deep Dive and Sweep Modes pages.
+- **Registry & Active Learning** — added the v1.6.2 `bundle_path` round-trip flow, the v1.6.1 `suggest_samples` normalization fix callout, and the `auto_collect` loop with a sample `collect()` callback.
+- **CLI Reference** — 3 → 6 commands (+ `neuron-tui`). Removed obsolete claims; added "what's a CLI thing vs MCP thing" table.
+- **Changelog** — rewrote from 6 entries stuck at v0.2.1 to ~33 entries through v1.10.1, with tagline summaries per release.
+
+### Updated — Tool Reference
+
+- `data/tools.ts` rewrote top-to-bottom. 43 tools total, all current signatures, 10 tools added that had no prior doc coverage (`cv_train`, `calibrate`, `drift_check`, `data_audit`, `auto_preflight`, `cancel_auto_train`, `log_auto_note`, `llm_load`, `llm_generate`, `llm_inspect`).
+- 3 new categories in the filter chips: **Validation**, **Monitoring**, **LLM**.
+- 15+ tools had their signatures updated to match current reality — `auto_train` gained `force / dry_run / tournament / seed / auto_collect / max_collect_rounds`, `train` gained the full modern arg surface, `load_csv` gained `max_bytes / stratify / seed`, `export_model` / `import_model` gained `bundle_path`, `suggest_hyperparams` output schema caught up with v1.6.0.
+
+### Nav
+
+Two new sidebar sections: **Deep Dives** (6 entries) and **Surfaces** (3 entries). Reference stays as Tool Reference + Benchmarks + Changelog.
+
+### Non-changes
+
+- No runtime / MCP / training behavior changed. This is docs-only.
+- Neuron MCP server, CLI, and dashboard are functionally identical to v1.10.0 — only the version string bumped.
+
+---
+
 ## v1.10.0 — 2026-04-21
 
 **Bug-hunt release.** A live Fashion-MNIST run from the previous session surfaced three confirmed bugs in `auto_train`'s lifecycle. A second Claude session filed them; this release fixes all three.

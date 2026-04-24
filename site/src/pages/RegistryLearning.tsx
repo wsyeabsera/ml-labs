@@ -4,6 +4,7 @@ import { Section } from "../components/Section"
 import { CodeBlock } from "../components/CodeBlock"
 import { InfoCard } from "../components/InfoCard"
 import { DataFlow } from "../components/DataFlow"
+import { Callout } from "../components/Callout"
 
 export function RegistryLearning() {
   return (
@@ -55,6 +56,17 @@ await mcp__neuron__import_model({
 await mcp__neuron__predict({
   task_id: "iris",
   features: [5.1, 3.5, 1.4, 0.2],
+})
+
+// Offline alternative: bundle round-trip (v1.6.2)
+// Project A: writes a bundle dir to an arbitrary path
+await mcp__neuron__export_model({
+  task_id: "iris",
+  bundle_path: "/Users/yab/models/iris-v1",
+})
+// Project B: reads the bundle (scp it first if on a different machine)
+await mcp__neuron__import_model({
+  bundle_path: "/Users/yab/models/iris-v1",
 })`}
         />
 
@@ -137,11 +149,51 @@ await mcp__neuron__predict({
             When <code>auto_train</code> can't hit the accuracy target after all waves, it calls{" "}
             <code>suggest_samples</code> and bakes the recommendations into its final verdict.
           </InfoCard>
-          <InfoCard icon={Lightbulb} title="Calibration caveat" accent="pink">
-            Raw MSE-trained softmax is not temperature-calibrated — "0.7 confidence" is loose.
-            Treat <code>confidence_threshold</code> as a relative knob, not a probability.
+          <InfoCard icon={Lightbulb} title="Calibrate before trusting confidence" accent="pink">
+            Raw softmax is not temperature-calibrated — &ldquo;0.7 confidence&rdquo; is loose. Call{" "}
+            <code>calibrate(run_id)</code> after training; it fits a temperature T on the val split
+            so confidences reflect empirical accuracy. auto_train does this automatically. See the
+            <a href="/validation" className="text-pink-neon hover:underline"> Validation</a> page.
           </InfoCard>
         </div>
+
+        <Callout kind="tip" title="v1.6.1 fix — normalized features">
+          Prior to v1.6.1, <code>suggest_samples</code> was feeding <em>unnormalized</em> features to
+          the predictor when the task had <code>normalize=true</code>, producing wrong uncertainty
+          scores. Every normalized task silently surfaced wrong uncertain samples. Fixed — but a
+          reminder that the data path matters: predict/batch_predict/suggest_samples all share one
+          normalization code path now.
+        </Callout>
+      </Section>
+
+      <Section eyebrow="Auto-collect loop" title="auto_train calls suggest_samples too.">
+        <p>
+          If you pass <code>auto_collect: true</code> to <code>auto_train</code>, after normal waves
+          complete (and the target isn't hit yet), the controller calls <code>suggest_samples</code>,
+          hands the uncertain rows to your <code>collect()</code> callback in{" "}
+          <code>neuron.config.ts</code>, inserts the returned samples, and runs one more refinement
+          wave. Up to <code>max_collect_rounds</code> iterations.
+        </p>
+        <CodeBlock
+          lang="ts"
+          title="neuron.config.ts — a collect() callback"
+          code={`export default {
+  async collect({ uncertain_samples, recommendations }) {
+    // Called by auto_train when auto_collect: true.
+    // Return new samples to feed back into training.
+    //
+    // uncertain_samples: the rows the model got wrong or was unsure about.
+    // recommendations: human-readable hints from suggest_samples.
+    const extras = await generateFromLLMOrLabel(uncertain_samples)
+    return extras  // [{ label, features, raw? }]
+  },
+}`}
+        />
+        <p>
+          Without a callback, <code>auto_collect: true</code> is a no-op — ML-Labs won't fabricate
+          data behind your back. Full details in{" "}
+          <a href="/auto-train-deep-dive" className="text-purple-neon hover:underline">Auto-Train Deep Dive § step 7</a>.
+        </p>
       </Section>
 
       <Section eyebrow="The workflow this enables" title="Build → publish → improve — on repeat.">

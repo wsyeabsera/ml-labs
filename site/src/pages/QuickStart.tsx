@@ -56,7 +56,7 @@ export function QuickStart() {
               body: (
                 <>
                   <code>ml-labs init</code> creates a fully wired directory — <code>.mcp.json</code>,{" "}
-                  <code>neuron.config.ts</code>, all 8 slash commands, and a README.
+                  <code>neuron.config.ts</code>, all 9 slash commands, example CSVs, and a README.
                   <CodeBlock
                     lang="bash"
                     code={`ml-labs init iris-demo
@@ -73,7 +73,7 @@ cd iris-demo`}
               body: (
                 <>
                   Open <code>iris-demo/</code> in Claude Code. The Neuron MCP tools appear
-                  automatically (check the MCP panel — you should see ~30 tools).
+                  automatically (check the MCP panel — you should see 43 tools).
                   <br /><br />
                   Drop your CSV in the project root, then:
                   <CodeBlock
@@ -137,14 +137,15 @@ cd iris-demo`}
         <CodeBlock
           lang="bash"
           code={`# from ~/.ml-labs/neuron/
-bun run test/e2e_phase5.ts
-
-# expected final line:
-#   Phase 5 verification complete.`}
+bun run ci            # typecheck + unit tests (fast)
+bun run bench:fast    # iris + wine benchmarks (~20s)`}
         />
         <p>
-          This runs the full stack end-to-end: trains an iris classifier, kills the server, spins
-          up a fresh server, and confirms <code>predict</code> works across sessions.
+          <code>bun run ci</code> runs typecheck + 180-ish unit tests. <code>bench:fast</code> runs
+          the iris + wine end-to-end benchmarks deterministically (seed=42, planner=rules,
+          sweep=sequential) and compares against a blessed baseline. If either goes green, the whole
+          stack is working. Full benchmark suite:{" "}
+          <a href="/benchmarks" className="text-cyan-neon hover:underline">Benchmarks</a>.
         </p>
       </Section>
 
@@ -181,7 +182,7 @@ bun run test/e2e_phase5.ts
           <InfoCard icon={Lightbulb} title="Neuron tools don't appear" accent="orange">
             After running <code>ml-labs init</code>, open the project directory in Claude Code
             (not a parent folder). Claude reads <code>.mcp.json</code> at project root on startup.
-            Check the MCP panel to confirm ~30 tools loaded.
+            Check the MCP panel to confirm 43 tools loaded.
           </InfoCard>
           <InfoCard icon={Lightbulb} title="Predict fails after restart" accent="cyan">
             Should self-heal via lazy weight restore. If not, your task has no registered model —
@@ -216,7 +217,7 @@ bun run test/e2e_phase5.ts
           <Link to="/tool-reference" className="lab-panel p-5 hover:border-green-neon/40 transition-colors group">
             <BookMarked className="w-5 h-5 text-green-neon mb-3" />
             <div className="font-semibold text-lab-heading mb-1 group-hover:text-green-neon transition-colors">Tool Reference</div>
-            <div className="text-sm text-lab-muted">All 30 MCP tools, signatures, and examples.</div>
+            <div className="text-sm text-lab-muted">All 43 MCP tools, signatures, and examples.</div>
             <ArrowRight className="w-4 h-4 text-lab-muted mt-3 group-hover:text-green-neon transition-colors" />
           </Link>
         </div>
