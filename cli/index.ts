@@ -59,17 +59,15 @@ EXAMPLES
   ml-labs update
   ml-labs docs
 
-FEATURES (34 MCP tools)
-  · Train/test split     load_csv test_size=0.2 → stratified split stored in DB
-  · Z-score norm         create_task normalize=true → applied at train + predict
-  · Regression           kind="regression" → MAE / RMSE / R² metrics
-  · Class weights        train class_weights="balanced" → oversampling
-  · Observability        inspect_data · get_training_curves · model_stats
-  · Batch inference      batch_predict over a CSV file
-  · Active learning      suggest_samples → uncertain / misclassified rows
-  · Parallel sweeps      run_sweep → N sub-agents, wall clock ≈ one run
-  · Auto-train           /neuron-auto → coordinator sub-agent, full pipeline
-  · Cross-session        weights restore lazily from SQLite into rs-tensor
+FEATURES (43 MCP tools)
+  · Auto-train           auto_train → full pipeline (preflight → waves → promote)
+  · Adaptive sweeps      run_sweep → sub-agents when safe, sequential when not
+  · Memory guardrail     safe/advisory/heavy/refuse bands + dry_run preview
+  · Validation           cv_train · calibrate (ECE) · drift_check (PSI + KS)
+  · Active learning      suggest_samples + auto_collect loop
+  · LLM playground       llm_load / llm_generate / llm_inspect (GGUF)
+  · Registry             publish_model / import_model across projects
+  · Three UIs            Claude Code (MCP) · dashboard (:2626) · TUI
 
 DOCS
   ml-labs docs          Serves the full reference at http://localhost:5273

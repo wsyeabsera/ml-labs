@@ -1,6 +1,6 @@
 {
   "name": "@neuron/mcp",
-  "version": "1.10.1",
+  "version": "1.10.2",
   "description": "Universal Claude-native ML platform as an MCP server",
   "type": "module",
   "bin": {

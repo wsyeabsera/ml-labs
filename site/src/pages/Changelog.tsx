@@ -16,10 +16,22 @@ interface Release {
  */
 const releases: Release[] = [
   {
-    version: "1.10.1",
+    version: "1.10.2",
     date: "2026-04-24",
     tag: "latest",
     tagColor: "chip-green",
+    tagline: "`ml-labs docs` rebuild + auto-open.",
+    items: [
+      { label: "Rebuild when sources are newer", desc: "docs command now walks site/src/ recursively, compares max mtime to dist/index.html. Rebuilds when any source is newer. Fixes the 'I updated but still see old docs' problem." },
+      { label: "update clears site/dist/", desc: "ml-labs update now removes site/dist/ in addition to dashboard/dist/. Next docs call rebuilds cleanly." },
+      { label: "Auto-open in browser", desc: "ml-labs docs fires open (macOS) / xdg-open (Linux) / start (Windows) once the server starts listening." },
+      { label: "CLI help refresh", desc: "Stale '34 MCP tools' → 43. Feature list updated to auto_train lifecycle, memory guardrail, validation toolkit, LLM, three UIs." },
+      { label: "Non-changes", desc: "No MCP / training behavior changed." },
+    ],
+  },
+  {
+    version: "1.10.1",
+    date: "2026-04-24",
     tagline: "Docs refresh — 10 new pages, 3 new components, every stale claim replaced.",
     items: [
       { label: "10 new pages", desc: "Memory Budget, Auto-Train Deep Dive, Sweep Modes, Validation & Reliability, LLM / GGUF, HTTP Dashboard, TUI, Training Config, Events & Observability, Benchmarks." },

@@ -69,11 +69,18 @@ export async function update() {
     }
   }
 
-  // Invalidate dashboard dist so it rebuilds on next `ml-labs dashboard`
+  // Invalidate build caches so the next `ml-labs dashboard` / `ml-labs docs`
+  // rebuilds from the freshly-pulled sources. `ml-labs docs` also has an mtime
+  // check as a second line of defense, but clearing here is unambiguous.
   const dashDist = join(ML_LABS_DIR, "dashboard", "dist")
   if (existsSync(dashDist)) {
     rmSync(dashDist, { recursive: true, force: true })
     console.log("Dashboard cache cleared — will rebuild on next launch.")
+  }
+  const siteDist = join(ML_LABS_DIR, "site", "dist")
+  if (existsSync(siteDist)) {
+    rmSync(siteDist, { recursive: true, force: true })
+    console.log("Docs cache cleared — will rebuild on next `ml-labs docs`.")
   }
 
   console.log("\nML-Labs updated.")

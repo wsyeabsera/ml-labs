@@ -4,6 +4,33 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v1.10.2 — 2026-04-24
+
+**`ml-labs docs` rebuild + auto-open.** After running `ml-labs update`, users still saw the old docs — v1.10.1's new pages didn't appear. Two bugs conspired: `update` cleared the dashboard cache but left the site dist untouched, and `docs` only rebuilt when `dist/index.html` was missing (never when stale). Also: browser didn't auto-open.
+
+### Fixed — `docs` now rebuilds when sources are newer
+
+- `cli/commands/docs.ts` walks `site/src/` recursively and finds the max file mtime; if any source is newer than `dist/index.html`, rebuild. Also checks top-level config files (`vite.config.ts`, `tailwind.config.js`, `tsconfig.json`, `package.json`, root `index.html`).
+- First-run / missing-dist case still builds as before.
+
+### Fixed — `update` clears `site/dist/` too
+
+- `cli/commands/update.ts` now removes `site/dist/` in addition to `dashboard/dist/`. Next `ml-labs docs` rebuilds cleanly — belt + suspenders with the mtime check.
+
+### Added — `ml-labs docs` auto-opens your browser
+
+- Platform-aware: `open` on macOS, `xdg-open` on Linux, `start` on Windows. Fires once the server starts listening. Best-effort — URL is still printed so you can open manually if the auto-open fails.
+
+### Updated — CLI help
+
+- Stale "34 MCP tools" line in `ml-labs --help` → 43. Feature list refreshed to current reality (auto_train lifecycle, memory guardrail, validation toolkit, LLM, three UIs).
+
+### Non-changes
+
+- No MCP / training behavior changed.
+
+---
+
 ## v1.10.1 — 2026-04-24
 
 **Docs refresh.** The docs site was stuck reporting ~34 MCP tools, 11-coordinator-tool allowlists, and stopped its changelog at v0.2.1. This release catches it up to v1.10 reality — 20 pages total, 10 of them new — and replaces the actively-wrong sections.

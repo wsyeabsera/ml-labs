@@ -10,7 +10,7 @@ import {
 import type { ReactNode } from "react"
 import { useState } from "react"
 
-const VERSION = "1.10.1"
+const VERSION = "1.10.2"
 const GITHUB = "https://github.com/wsyeabsera/ml-labs"
 
 const navSections = [
