@@ -5,7 +5,7 @@ import { createRun, updateRunStatus, updateRunCheckpoint, finalizeRun, updateDat
 import { registerModel } from "../core/db/models"
 import { setActiveRun, clearActiveRun, setTaskTrained, setRunProgress, clearRunProgress } from "../core/state"
 import { updateRunProgress, clearRunProgressDb } from "../core/db/runs"
-import { trainHead, type TrainHyperparams } from "../core/train"
+import { trainHead, evalValAccuracy, type TrainHyperparams } from "../core/train"
 import { loadConfig } from "../adapter/loader"
 import { log, clearLog } from "../core/logger"
 import { buildRunContext } from "../core/run-context"
@@ -144,6 +144,21 @@ export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
 
     setRunProgress(run.id, { stage: "eval", message: "Evaluating…" }, result.lossHistory, hyperparams.epochs)
 
+    // v1.10.0 Bug A fix: the MCP train path (used by sub-agent sweeps from
+    // auto_train/run_sweep) previously skipped held-out val evaluation. Sub-agent
+    // runs came back with val_accuracy=null, so winner selection fell back to
+    // training accuracy — which meant SWA/AdamW runs that memorized the training
+    // set (acc=1.0) beat honest runs with realistic val_acc. Share the helper
+    // with trainBg.ts so every path writes the same signal.
+    const valAccuracy = await evalValAccuracy({
+      taskId: args.task_id,
+      runId: run.id,
+      D, K,
+      labelNames,
+      ...(result.normStats ? { normStats: result.normStats } : {}),
+      isRegression,
+    })
+
     finalizeRun(run.id, {
       accuracy: result.metrics.accuracy,
       perClassAccuracy: result.metrics.perClassAccuracy,
@@ -155,6 +170,7 @@ export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
       mae: result.regressionMetrics?.mae,
       rmse: result.regressionMetrics?.rmse,
       r2: result.regressionMetrics?.r2,
+      ...(valAccuracy !== undefined ? { valAccuracy } : {}),
     })
 
     if (!isRegression) updateTaskLabels(args.task_id, labelNames)
@@ -189,10 +205,12 @@ export async function handler(args: z.infer<z.ZodObject<typeof schema>>) {
       log(`Run ${run.id} completed — MAE=${result.regressionMetrics?.mae?.toFixed(4)}, R²=${result.regressionMetrics?.r2?.toFixed(4)}`)
     } else {
       ret.accuracy = result.metrics.accuracy
+      if (valAccuracy !== undefined) ret.val_accuracy = valAccuracy
       ret.per_class_accuracy = result.metrics.perClassAccuracy
       ret.labels = labelNames
       if (result.normStats) ret.normalized = true
-      log(`Run ${run.id} completed — accuracy ${(result.metrics.accuracy * 100).toFixed(1)}%`)
+      const valTail = valAccuracy !== undefined ? `, val ${(valAccuracy * 100).toFixed(1)}%` : ""
+      log(`Run ${run.id} completed — accuracy ${(result.metrics.accuracy * 100).toFixed(1)}%${valTail}`)
     }
 
     return ret

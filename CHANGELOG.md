@@ -4,6 +4,39 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v1.10.0 — 2026-04-21
+
+**Bug-hunt release.** A live Fashion-MNIST run from the previous session surfaced three confirmed bugs in `auto_train`'s lifecycle. A second Claude session filed them; this release fixes all three.
+
+### Fixed — sub-agent sweep runs missed held-out val evaluation (Bug A)
+
+The MCP `train` tool (used by every sub-agent spawned from `auto_train` / `run_sweep`) never ran post-training evaluation against the held-out test split. Only the HTTP path (`api/trainBg.ts`, used by dashboard-launched trainings) did. Consequence: sub-agent runs came back with `val_accuracy = null`, winner selection fell back to training accuracy, and SWA/AdamW configurations that memorized the training set (`accuracy = 1.0` with loss plateaued at the label-smoothing entropy floor) beat honest runs with realistic val_acc.
+
+- Factored the held-out eval into a shared `evalValAccuracy` helper in `core/train.ts`.
+- Wired it into `tools/train.ts` between `trainHead` and `finalizeRun`, surfacing `val_accuracy` in the tool's return payload.
+- Refactored `api/trainBg.ts` to call the same helper instead of its inline duplicate — both code paths now populate the same signal identically.
+
+### Fixed — orphan child runs after coordinator exit (Bug B)
+
+The auto_train controller's reaper only iterated the in-process registry, which tracks children returned by `runSweep`'s result array. When the budget timer aborted `runSweep` mid-wave, sub-agent processes that had already inserted a `runs` row kept running — they never made it back to the orchestrator and the registry missed them, leaving orphan `status=running` rows in the DB and the dashboard.
+
+- Added `listRunningRunsForTaskSince(taskId, t0)` — SQL scan for any task runs started at or after the coordinator's entry timestamp that are still `running`/`pending`.
+- Controller's reap block now unions the registry set with the DB scan. Runs on every terminal exit path (`completed`, `cancelled`, `budget_exceeded`, `failed`, `no_improvement`) because sub-agents occasionally outlive the abort by a few seconds even on success.
+
+### Fixed — verdict reported 0 configs when children had been spawned (Bug C)
+
+The previous `configs_tried` counter used `allRunIds.length` — only runs whose sub-agent result reached the orchestrator. When `runSweep` aborted mid-wave, the count was 0 even though rows had been inserted. Verdicts read `"budget exceeded after 0 configs in 1 waves"` when the reality was "budget exceeded, 2 runs were spawned and reaped."
+
+- Added `countRunsForTaskSince(taskId, t0)` — DB count of all rows started since controller entry regardless of final status.
+- Verdict now uses `max(completed_results, db_count)` for an honest configs_tried.
+- `budget_exceeded` and `cancelled` one-liners include the count + waves used so `get_auto_status` output is self-describing.
+
+### Not a bug — accuracy=1.0 with loss ≈ 0.5 (Bug D, debunked)
+
+The user flagged a run with `accuracy=1.0` and training loss plateaued at ~0.5 as mathematically impossible. It's not: label-smoothing with α=0.1 across 10 classes has a hard entropy floor of `-0.91·log(0.91) - 9·0.01·log(0.01) ≈ 0.5003`. The model reaches minimum possible cross-entropy while still predicting the correct argmax for every sample. The confusion matrix is exact-diagonal [800 × 10 classes = 8000 training samples], i.e. perfect memorization of the training set. The real bug is that train accuracy was being used as the winner metric — resolved by Bug A.
+
+---
+
 ## v1.9.0 — 2026-04-22
 
 **User-requested preview + ETA.** Continuing from v1.8.2, the user asked: (1) *"still not gonna crash my system right?"* and (2) *"would like some ETA features in the dashboard, and maybe confirm before auto_train starts."* This release ships both.

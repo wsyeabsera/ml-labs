@@ -1,12 +1,75 @@
 import { rsTensor } from "./mcp_client"
 import {
   computeClassificationMetrics, computeRegressionMetrics,
-  computeNormStats, applyNorm,
+  computeNormStats, applyNorm, softmax, argmax,
   type ClassificationMetrics, type RegressionMetrics,
 } from "./metrics"
 import { log } from "./logger"
 import { throwIfAborted } from "../util/abort"
 import type { NormStats } from "./db/tasks"
+import { streamSamplesByTaskAndSplit, countSamplesByTaskAndSplit } from "./db/samples"
+
+/**
+ * Evaluate a completed training run on its task's held-out test split.
+ * Stream-fills a flat feature array + applies normStats in place, then
+ * passes through rs-tensor's evaluate_mlp and computes argmax accuracy.
+ *
+ * Returns undefined when:
+ *   - no test split exists for this task
+ *   - the task is regression (val accuracy doesn't apply the same way)
+ *   - rs-tensor throws (non-fatal — caller should keep going)
+ *
+ * Factored out of trainBg.ts (HTTP path) in v1.10.0 so the MCP train tool
+ * (tools/train.ts, used by sub-agent sweeps) can call it too. Previously only
+ * trainBg.ts ran val eval — every sub-agent sweep run had val_accuracy=null,
+ * and winner selection fell back to training accuracy.
+ */
+export async function evalValAccuracy(opts: {
+  taskId: string
+  runId: number
+  D: number
+  K: number
+  labelNames: string[]
+  normStats?: NormStats
+  isRegression: boolean
+}): Promise<number | undefined> {
+  if (opts.isRegression) return undefined
+  const testCount = countSamplesByTaskAndSplit(opts.taskId, "test")
+  if (testCount === 0) return undefined
+
+  try {
+    const mlpName = `neuron_run_${opts.runId}_mlp`
+    const testLabels: string[] = []
+    const flatFeatures = new Array<number>(testCount * opts.D)
+    const mean = opts.normStats?.mean
+    const std = opts.normStats?.std
+    let ti = 0
+    for (const s of streamSamplesByTaskAndSplit(opts.taskId, "test")) {
+      testLabels.push(s.label)
+      const base = ti * opts.D
+      for (let d = 0; d < opts.D; d++) {
+        const v = s.features[d] ?? 0
+        flatFeatures[base + d] = mean && std ? (v - mean[d]!) / std[d]! : v
+      }
+      ti++
+    }
+    const inputName = `neuron_run_${opts.runId}_val_inputs`
+    await rsTensor.createTensor(inputName, flatFeatures, [testCount, opts.D])
+    const evalResult = await rsTensor.evaluateMlp(mlpName, inputName)
+    const rawPreds = evalResult.predictions?.data ?? []
+    let correct = 0
+    for (let i = 0; i < testCount; i++) {
+      const logits = rawPreds.slice(i * opts.K, (i + 1) * opts.K)
+      const predIdx = argmax(softmax(logits))
+      const predictedLabel = opts.labelNames[predIdx] ?? "unknown"
+      if (predictedLabel === testLabels[i]) correct++
+    }
+    return correct / testCount
+  } catch (e) {
+    log(`val eval skipped: ${e instanceof Error ? e.message : String(e)}`)
+    return undefined
+  }
+}
 
 export interface TrainHyperparams {
   lr: number

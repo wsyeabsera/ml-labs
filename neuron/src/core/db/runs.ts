@@ -180,6 +180,32 @@ export function listStaleRunningRuns(minAgeS: number): Run[] {
   ).all(cutoff) as DbRow[]).map(rowToRun)
 }
 
+/**
+ * List runs for a task that are still 'running'/'pending' and started at or after
+ * the given unix timestamp. Used by the auto_train controller on exit to reap
+ * orphan children that the in-process registry missed — e.g. sub-agent sweeps
+ * whose children got as far as inserting a run row before the budget timer
+ * aborted runSweep and their result never came back.
+ */
+export function listRunningRunsForTaskSince(taskId: string, startedAtUnix: number): Run[] {
+  return (db.query(
+    "SELECT * FROM runs WHERE task_id = ? AND status IN ('running', 'pending') AND started_at IS NOT NULL AND started_at >= ?",
+  ).all(taskId, startedAtUnix) as DbRow[]).map(rowToRun)
+}
+
+/**
+ * Count run rows for a task started at or after the given unix timestamp,
+ * regardless of final status. Used by auto_train to report an honest
+ * `configs_tried` in the verdict — the previous count only included runs
+ * whose sub-agent result came back to the orchestrator, which was 0 when
+ * runSweep aborted mid-wave even though children had been spawned.
+ */
+export function countRunsForTaskSince(taskId: string, startedAtUnix: number): number {
+  return (db.query(
+    "SELECT COUNT(*) as c FROM runs WHERE task_id = ? AND started_at IS NOT NULL AND started_at >= ?",
+  ).get(taskId, startedAtUnix) as { c: number }).c
+}
+
 export function updateRunCheckpoint(id: number, checkpoint: Checkpoint, lossHistory: number[]) {
   db.prepare("UPDATE runs SET checkpoint = ?, loss_history = ? WHERE id = ?")
     .run(JSON.stringify(checkpoint), JSON.stringify(lossHistory), id)

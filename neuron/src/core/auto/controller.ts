@@ -27,7 +27,7 @@ import { handler as calibrateHandler } from "../../tools/calibrate"
 import {
   registerController, deregisterController, trackChildRun,
 } from "./registry"
-import { forceCancelRun } from "../db/runs"
+import { forceCancelRun, listRunningRunsForTaskSince, countRunsForTaskSince } from "../db/runs"
 import { estimateTrainingBudget } from "../memory_budget"
 
 export interface ControllerArgs {
@@ -678,6 +678,13 @@ async function runControllerBody(
   }
 
   // Step 8: persist verdict
+  // v1.10.0 Bug C fix: count all run rows created for this task since t0,
+  // not just the sub-agent results that made it back to the orchestrator.
+  // When runSweep aborts mid-wave (budget timer, cancellation), the children
+  // had already inserted rows into `runs`, but the orchestrator's result array
+  // was empty — producing misleading "budget exceeded after 0 configs" verdicts.
+  const startedAtUnix = Math.floor(t0 / 1000)
+  const configsTriedHonest = Math.max(allRunIds.length, countRunsForTaskSince(args.task_id, startedAtUnix))
   const verdict: StructuredVerdict = {
     status,
     winner: {
@@ -689,7 +696,7 @@ async function runControllerBody(
       config: winner?.config ?? null,
     },
     attempted: {
-      configs_tried: allRunIds.length,
+      configs_tried: configsTriedHonest,
       waves_used: wavesDone,
       wall_clock_s: elapsed(),
     },
@@ -698,25 +705,37 @@ async function runControllerBody(
     summary: status === "completed"
       ? `target reached: ${metricName}=${winnerMetric?.toFixed(3)} on run ${winner?.run_id}`
       : status === "budget_exceeded"
-        ? `budget exceeded (${elapsed()}s)`
+        ? `budget exceeded (${elapsed()}s) after ${configsTriedHonest} config(s) in ${wavesDone} wave(s)`
         : status === "cancelled"
-          ? `cancelled by operator after ${wavesDone} wave(s), ${allRunIds.length} run(s)`
+          ? `cancelled by operator after ${wavesDone} wave(s), ${configsTriedHonest} run(s)`
           : status === "no_improvement"
             ? `best ${metricName}=${winnerMetric?.toFixed(3) ?? "n/a"} < target ${args.accuracy_target}`
             : "no completed runs",
   }
 
-  // Reap any child runs still marked as running in the DB. This covers two cases:
+  // Reap any child runs still marked as running in the DB. This covers:
   //   1. Cancelled mid-wave — sub-agents that were spawning/in-flight never wrote a terminal status.
-  //   2. Budget timer fired mid-wave — same problem.
-  // Safe to call on every exit path because forceCancelRun no-ops on already-terminal rows.
-  if (status === "cancelled" || status === "budget_exceeded" || status === "failed") {
+  //   2. Budget timer fired mid-wave — runSweep's promise was aborted before its
+  //      sub-agent results came back, so the registry never saw those run ids.
+  //      v1.10.0 Bug B fix: also scan the DB for task runs started after this
+  //      auto_run's t0 that are still running/pending — registry is best-effort;
+  //      the DB is authoritative. Reaping on every terminal exit path (including
+  //      "completed"/"no_improvement") because sub-agent processes sometimes
+  //      survive the orchestrator's abort by a few seconds, and leaving them
+  //      "running" in the UI is confusing even when the coordinator succeeded.
+  {
+    const ids = new Set<number>(registryEntry.childRunIds)
+    for (const r of listRunningRunsForTaskSince(args.task_id, startedAtUnix)) {
+      ids.add(r.id)
+    }
     const reapedIds: number[] = []
-    for (const childId of registryEntry.childRunIds) {
+    for (const childId of ids) {
       if (forceCancelRun(childId, "cancelled")) reapedIds.push(childId)
     }
     if (reapedIds.length > 0) {
-      log(args.auto_run_id, "cancel_reaped", `reaped ${reapedIds.length} in-flight run(s)`, { run_ids: reapedIds })
+      log(args.auto_run_id, "cancel_reaped",
+        `reaped ${reapedIds.length} in-flight run(s)`,
+        { run_ids: reapedIds, registry_tracked: registryEntry.childRunIds.size, db_scanned: ids.size })
     }
   }
   saveVerdictJson(args.auto_run_id, verdict)
