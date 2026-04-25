@@ -4,6 +4,63 @@ All notable changes to ML-Labs are documented here.
 
 ---
 
+## v1.11.0 — 2026-04-24
+
+**The big docs expansion.** Thirty new pages — concept tours, deep dives, recipes, postmortems, ADRs, comparison guides, the works. Doubles the docs surface from 20 → 50 pages and turns the site from "reference manual" into "ML platform book." All categorised and reachable from the sidebar.
+
+### Added — 30 new pages
+
+**Onboarding + concepts:**
+- **Glossary** — every ML / MCP / ML-Labs term in one searchable, alphabetical place.
+- **ML 101 for ML-Labs users** — intuition for tensors, loss functions, gradient descent, overfitting, MLPs. Tied to ML-Labs concepts so junior engineers can build a mental model.
+- **Mental Model — prompts as tool calls** — what's actually happening when you type into Claude Code. Demystifies the loop, slash commands, sub-agents.
+- **Tutorial — Pima diabetes** — full end-to-end walkthrough: load → audit → train → calibrate → predict → drift_check 30 days later.
+
+**Cookbook + specialty:**
+- **Cookbook** — 15 paste-able recipes (resume cancelled run, compare architectures, recover corrupted DB, schedule drift cron, run benchmarks in CI, etc.).
+- **Anti-patterns** — 7 common mistakes with broken vs fixed code: passing whole CSV as features, calling train in a loop, accuracy_target without val split, ignoring imbalance_ratio, mistaking train for val accuracy, not calibrating, training Fashion-MNIST without dry_run.
+- **Image classification walkthrough** — load_images + featurize for 32×32 small-image MLPs.
+- **Time series** — sliding-window pattern + time-cut splits.
+- **NLP workflows** — LLM-as-featurizer (OpenAI / sentence-transformers / llm_generate → MLP head).
+- **Multi-task projects** — patterns for one project with several models.
+
+**Inside the engine:**
+- **Build the trainer yourself** — implement an MLP from scratch in 80 lines of TS (forward, backward, SGD, training loop). Pulls back the curtain on what auto_train is doing.
+- **Inside a sub-agent** — Agent SDK mechanics, allowlist, isolation, JSON output contract, maxTurns, persistSession.
+- **TPE explained** — Tree-structured Parzen Estimator visualised. Density estimation, l/g ratio, sampling.
+- **Calibration math** — derivation of temperature scaling from NLL minimisation, ECE explained, reliability diagrams.
+- **rs-tensor internals** — the Rust math layer. Tensor storage, autograd, MLP training, GGUF inference.
+- **Why MCP** — protocol primer + the four primitives + stdio vs HTTP + debugging tips + a minimal MCP server example.
+- **Tour through neuron.db** — open SQLite, walk through every table after a complete auto_train, with example queries.
+
+**Project context (the outside-the-box ones):**
+- **The Story** — origin, design philosophy, what got cut, the three principles. The ELI5 of "what is ML-Labs and why."
+- **Architecture Decision Records** — 8 ADRs documenting the load-bearing decisions: TS controller pivot, sequential-by-default, local-first, MCP everywhere, SQLite WAL, CPU-only, adapter hash, decision_log.
+- **Postmortems** — three real incidents written up with timeline / root cause / fix / takeaway: Fashion-MNIST OOM, the memoriser-wins bug (v1.10.0 Bug A), orphan-run zombies (v1.10.0 Bug B).
+- **Comparisons** — ML-Labs vs sklearn, PyTorch Lightning, MLflow / W&B. Honest about scope.
+- **Performance characteristics** — measured wall-clock + peak RSS for iris, wine, breast-cancer, digits, housing, Fashion-MNIST on M1 / M3 / Intel. LLM tok/s table. Capacity-planning rules of thumb.
+
+**Reference deepening:**
+- **Troubleshooting / FAQ** — 30 symptom→cause→fix entries. The Cmd+F destination.
+- **Slash Commands** — all 10 /neuron-* commands documented, with frontmatter format + how to add custom ones.
+- **Environment Variables** — every NEURON_* / RS_TENSOR_* env var with defaults, when to set, and precedence rules.
+- **Adapter Reference** — full neuron.config.ts surface (featurize, decodeImage, collect, headArchitecture) with worked examples for tabular / image / text / audio.
+- **DB Schema** — every column of every table, what writes it, what reads it.
+- **HTTP API Reference** — every /api/* endpoint, method, body, response shape, with curl + Python examples.
+- **Sampling Fallback** — when MCP Sampling fires, what happens when it doesn't, the heuristic decision tables.
+- **Non-Claude Usage** — running ML-Labs from cron, CI, Python scripts. HTTP / MCP stdio / direct DB patterns.
+
+### Updated — Layout + nav
+
+Eight sidebar sections: Getting Started · How It Works · Deep Dives · Cookbook & Specialty · Surfaces · Inside the Engine · Project Context · Reference. ~50 entries total. CLI version label bumped to 1.11.0.
+
+### Non-changes
+
+- Docs-only release. No MCP / training / runtime behaviour changed.
+- The 43 MCP tools, controller, planner, sweep modes, memory budget — all unchanged from v1.10.x.
+
+---
+
 ## v1.10.2 — 2026-04-24
 
 **`ml-labs docs` rebuild + auto-open.** After running `ml-labs update`, users still saw the old docs — v1.10.1's new pages didn't appear. Two bugs conspired: `update` cleared the dashboard cache but left the site dist untouched, and `docs` only rebuilt when `dist/index.html` was missing (never when stale). Also: browser didn't auto-open.

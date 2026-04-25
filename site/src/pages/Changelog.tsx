@@ -16,10 +16,24 @@ interface Release {
  */
 const releases: Release[] = [
   {
-    version: "1.10.2",
+    version: "1.11.0",
     date: "2026-04-24",
     tag: "latest",
     tagColor: "chip-green",
+    tagline: "30 new docs pages — concept tours, deep dives, recipes, postmortems, ADRs, comparisons.",
+    items: [
+      { label: "Onboarding + concepts (4 pages)", desc: "Glossary, ML 101, Mental Model (prompts as tool calls), End-to-end Pima tutorial." },
+      { label: "Cookbook + specialty (6 pages)", desc: "Cookbook (15 recipes), Anti-patterns gallery, Image / Time-series / NLP / Multi-task." },
+      { label: "Inside the engine (7 pages)", desc: "Build the trainer yourself, Inside a sub-agent, TPE explained, Calibration math, rs-tensor internals, Why MCP, Tour through neuron.db." },
+      { label: "Project context (5 pages)", desc: "The Story, ADRs, Postmortems (3 real incidents), Comparisons (sklearn / Lightning / MLflow), Performance." },
+      { label: "Reference deepening (8 pages)", desc: "Troubleshooting/FAQ, Slash Commands, Environment Variables, Adapter Reference, DB Schema, HTTP API Reference, Sampling Fallback, Non-Claude Usage." },
+      { label: "Sidebar restructure", desc: "Eight sections: Getting Started, How It Works, Deep Dives, Cookbook & Specialty, Surfaces, Inside the Engine, Project Context, Reference. ~50 nav entries." },
+      { label: "Non-changes", desc: "Docs-only release. No MCP / runtime / training behaviour changed." },
+    ],
+  },
+  {
+    version: "1.10.2",
+    date: "2026-04-24",
     tagline: "`ml-labs docs` rebuild + auto-open.",
     items: [
       { label: "Rebuild when sources are newer", desc: "docs command now walks site/src/ recursively, compares max mtime to dist/index.html. Rebuilds when any source is newer. Fixes the 'I updated but still see old docs' problem." },

@@ -6,11 +6,15 @@ import {
   ScrollText, Menu, X,
   Brain, Gauge, ShieldCheck, Activity, SlidersHorizontal,
   Monitor, MessageSquare, Trophy,
+  // v1.11
+  BookOpen, Lightbulb, ChefHat, AlertTriangle, FileCode, Database,
+  Cpu, Image as ImageIcon, TrendingUp, GitBranch, History,
+  Wrench, FileText, Search, Server, Sigma,
 } from "lucide-react"
 import type { ReactNode } from "react"
 import { useState } from "react"
 
-const VERSION = "1.10.2"
+const VERSION = "1.11.0"
 const GITHUB = "https://github.com/wsyeabsera/ml-labs"
 
 const navSections = [
@@ -20,6 +24,9 @@ const navSections = [
       { to: "/", label: "Home", icon: Sparkles },
       { to: "/install", label: "Installation", icon: Download },
       { to: "/quick-start", label: "Quick Start", icon: Rocket },
+      { to: "/tutorial", label: "Tutorial — Pima", icon: Lightbulb },
+      { to: "/ml-101", label: "ML 101", icon: BookOpen },
+      { to: "/mental-model", label: "Prompts as Tool Calls", icon: Brain },
       { to: "/cli", label: "CLI Reference", icon: Terminal },
     ],
   },
@@ -41,6 +48,18 @@ const navSections = [
       { to: "/validation", label: "Validation & Reliability", icon: ShieldCheck },
       { to: "/training-config", label: "Training Config", icon: SlidersHorizontal },
       { to: "/observability", label: "Events & Observability", icon: Activity },
+      { to: "/sampling-fallback", label: "Sampling Fallback", icon: MessageSquare },
+    ],
+  },
+  {
+    label: "Cookbook & Specialty",
+    items: [
+      { to: "/cookbook", label: "Cookbook (recipes)", icon: ChefHat },
+      { to: "/anti-patterns", label: "Anti-patterns", icon: AlertTriangle },
+      { to: "/image-classification", label: "Images", icon: ImageIcon },
+      { to: "/time-series", label: "Time Series", icon: TrendingUp },
+      { to: "/nlp-workflows", label: "NLP Workflows", icon: MessageSquare },
+      { to: "/multi-task", label: "Multi-task Projects", icon: GitBranch },
     ],
   },
   {
@@ -49,14 +68,44 @@ const navSections = [
       { to: "/dashboard", label: "HTTP Dashboard", icon: Monitor },
       { to: "/tui", label: "TUI", icon: Terminal },
       { to: "/llm", label: "LLM / GGUF", icon: MessageSquare },
+      { to: "/non-claude-usage", label: "Non-Claude Usage", icon: Server },
+    ],
+  },
+  {
+    label: "Inside the Engine",
+    items: [
+      { to: "/build-trainer", label: "Build the Trainer", icon: Wrench },
+      { to: "/inside-subagent", label: "Inside a Sub-agent", icon: Brain },
+      { to: "/tpe-explained", label: "TPE Explained", icon: Activity },
+      { to: "/calibration-math", label: "Calibration Math", icon: Sigma },
+      { to: "/rs-tensor-internals", label: "rs-tensor Internals", icon: Cpu },
+      { to: "/why-mcp", label: "Why MCP", icon: MessageSquare },
+      { to: "/db-tour", label: "Tour Through neuron.db", icon: Database },
+    ],
+  },
+  {
+    label: "Project Context",
+    items: [
+      { to: "/story", label: "The Story", icon: ScrollText },
+      { to: "/adrs", label: "ADRs", icon: FileText },
+      { to: "/postmortems", label: "Postmortems", icon: AlertTriangle },
+      { to: "/comparisons", label: "Comparisons", icon: GitBranch },
+      { to: "/performance", label: "Performance", icon: Gauge },
     ],
   },
   {
     label: "Reference",
     items: [
+      { to: "/glossary", label: "Glossary", icon: BookOpen },
+      { to: "/troubleshooting", label: "Troubleshooting / FAQ", icon: Search },
       { to: "/tool-reference", label: "Tool Reference", icon: BookMarked },
+      { to: "/slash-commands", label: "Slash Commands", icon: Terminal },
+      { to: "/env-vars", label: "Environment Variables", icon: SlidersHorizontal },
+      { to: "/adapter-reference", label: "Adapter (config)", icon: FileCode },
+      { to: "/db-schema", label: "DB Schema", icon: Database },
+      { to: "/http-api-reference", label: "HTTP API", icon: Server },
       { to: "/benchmarks", label: "Benchmarks", icon: Trophy },
-      { to: "/changelog", label: "Changelog", icon: ScrollText },
+      { to: "/changelog", label: "Changelog", icon: History },
     ],
   },
 ]
